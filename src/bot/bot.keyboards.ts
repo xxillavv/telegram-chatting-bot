@@ -7,7 +7,7 @@ import { MENU } from './bot.constants';
 type InlineKeyboard = Markup.Markup<InlineKeyboardMarkup>;
 
 export const mainMenu: Markup.Markup<ReplyKeyboardMarkup> = Markup.keyboard([
-  [MENU.questions],
+  [MENU.questions, MENU.stats],
   [MENU.tone, MENU.about],
   [MENU.settings, MENU.reset],
   [MENU.emoji, MENU.help],

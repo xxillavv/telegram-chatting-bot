@@ -16,6 +16,8 @@ type ForwardOrigin = Message.TextMessage['forward_origin'];
 import { AiService } from '../ai/ai.service';
 import { SpeechService } from '../ai/speech.service';
 import { SessionService } from '../session/session.service';
+import { renderContributionChart } from '../stats/stats.chart';
+import { formatInterest, formatStats } from '../stats/stats.text';
 import { DEFAULT_TONE, findTone } from '../tones/tones';
 import { BATCH_DELAY_MS, COMMANDS, HELP, MENU } from './bot.constants';
 import {
@@ -38,6 +40,9 @@ function escapeHtml(text: string): string {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
 }
+
+// Менше — і LLM нема з чого робити висновки про зацікавленість
+const MIN_HER_MESSAGES_FOR_ANALYSIS = 3;
 
 const ABOUT_PROMPT =
   "Розкажи про неї і ваше спілкування: ім'я, вік, як познайомились, спільні теми, що варто знати. Наступне повідомлення я збережу як контекст.";
@@ -101,6 +106,16 @@ export class BotUpdate implements OnModuleInit {
     session.draft = question;
     await ctx.answerCbQuery();
     await ctx.reply(question, questionKeyboard);
+  }
+
+  @Command('stats')
+  async statsCommand(@Ctx() ctx: Context) {
+    await this.showStats(ctx);
+  }
+
+  @Hears(MENU.stats)
+  async statsButton(@Ctx() ctx: Context) {
+    await this.showStats(ctx);
   }
 
   @Command('tone')
@@ -425,6 +440,41 @@ export class BotUpdate implements OnModuleInit {
     } catch (error) {
       console.error(error);
       await ctx.reply('Не вдалося придумати питання, спробуй ще раз 🙏');
+    }
+  }
+
+  private async showStats(ctx: Context) {
+    this.clearInput(ctx);
+    const session = this.sessions.get(ctx.chat!.id);
+    const { me, her } = session.stats;
+    if (!me.messages && !her.messages) {
+      await ctx.reply(
+        'Переписки ще нема. Перешли її повідомлення, і я порахую 🙂',
+      );
+      return;
+    }
+
+    await ctx.sendChatAction('upload_photo');
+    await ctx.replyWithPhoto(
+      { source: renderContributionChart(session.stats) },
+      { caption: formatStats(session.stats) },
+    );
+
+    const herLines = session.history.filter((l) => l.from === 'her').length;
+    if (herLines < MIN_HER_MESSAGES_FOR_ANALYSIS) {
+      await ctx.reply(
+        `Щоб оцінити її зацікавленість, потрібно хоча б ${MIN_HER_MESSAGES_FOR_ANALYSIS} її повідомлення.`,
+      );
+      return;
+    }
+
+    await ctx.sendChatAction('typing');
+    try {
+      const analysis = await this.ai.analyzeInterest(session);
+      await ctx.reply(formatInterest(analysis));
+    } catch (error) {
+      console.error(error);
+      await ctx.reply('Не вдалося проаналізувати переписку, спробуй ще раз 🙏');
     }
   }
 

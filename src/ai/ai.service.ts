@@ -9,6 +9,9 @@ import {
   STYLE_RULES,
 } from './prompts/base.prompt';
 import { LLM_CLIENT } from './llm.client';
+import { InterestAnalysis } from './interest.types';
+import { INTEREST_PROMPT } from './prompts/interest.prompt';
+import { formatStats } from '../stats/stats.text';
 
 const EMOJI_RE = /[\p{Extended_Pictographic}\u{FE0F}\u{200D}]/gu;
 
@@ -67,6 +70,47 @@ export class AiService {
       .slice(0, QUESTIONS_COUNT);
     if (!questions.length) throw new Error('LLM не повернула питань');
     return questions;
+  }
+
+  async analyzeInterest(session: Session): Promise<InterestAnalysis> {
+    const parts = [
+      formatStats(session.stats),
+      `Переписка (останні повідомлення внизу):\n${formatLines(session.history)}`,
+    ];
+    if (session.about) parts.unshift(`Контекст про неї: ${session.about}`);
+
+    const completion = await this.client.chat.completions.create({
+      model: this.model,
+      messages: [
+        { role: 'system', content: INTEREST_PROMPT },
+        { role: 'user', content: parts.join('\n\n') },
+      ],
+      temperature: 0.3,
+      max_completion_tokens: 3000,
+      response_format: { type: 'json_object' },
+      ...(this.model.startsWith('openai/gpt-oss') && {
+        reasoning_effort: 'medium' as const,
+      }),
+    });
+
+    const raw = completion.choices[0]?.message?.content ?? '';
+    const json = raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1);
+    const data = JSON.parse(json) as Partial<InterestAnalysis>;
+    const list = (value: unknown) =>
+      Array.isArray(value)
+        ? value.filter((v): v is string => typeof v === 'string').slice(0, 3)
+        : [];
+
+    return {
+      interest: Math.min(
+        100,
+        Math.max(0, Math.round(Number(data.interest) || 0)),
+      ),
+      summary: String(data.summary ?? '').trim(),
+      positive: list(data.positive).map(stripDashes),
+      negative: list(data.negative).map(stripDashes),
+      advice: stripDashes(String(data.advice ?? '')),
+    };
   }
 
   private async complete(

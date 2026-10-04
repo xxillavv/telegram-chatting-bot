@@ -11,6 +11,18 @@ export interface StyleEdit {
   after: string;
 }
 
+export interface SideStats {
+  messages: number;
+  words: number;
+  questions: number;
+}
+
+// Лічильники за всю переписку — історія для LLM обрізається, а статистика ні
+export interface ConversationStats {
+  me: SideStats;
+  her: SideStats;
+}
+
 export interface Session {
   toneKey: string;
   // Власний опис тону — якщо заданий, має пріоритет над пресетом
@@ -20,6 +32,7 @@ export interface Session {
   // Чи можна вставляти емодзі у відповіді
   emoji: boolean;
   history: ChatLine[];
+  stats: ConversationStats;
   // Останній згенерований варіант, ще не підтверджений
   draft?: string;
   awaiting?: 'tone' | 'about' | 'edit';

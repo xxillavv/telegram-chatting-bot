@@ -31,10 +31,18 @@ export class SessionService {
         history: [],
         stats: emptyStats(),
         styleEdits: [],
+        seenChats: {},
       };
       this.sessions.set(chatId, session);
     }
     return session;
+  }
+
+  findByConnection(connectionId: string): Session | undefined {
+    for (const session of this.sessions.values()) {
+      if (session.business?.connectionId === connectionId) return session;
+    }
+    return undefined;
   }
 
   addLine(chatId: number, line: ChatLine) {

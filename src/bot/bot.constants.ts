@@ -6,6 +6,7 @@ export const MENU = {
   questions: '💬 Питання',
   stats: '📊 Статистика',
   tone: '🎭 Тон',
+  chat: '🔗 Чат',
   about: '👩 Про неї',
   settings: '⚙️ Налаштування',
   reset: '🧹 Нова переписка',
@@ -17,6 +18,7 @@ export const COMMANDS = [
   { command: 'start', description: 'Відкрити меню' },
   { command: 'questions', description: 'Питання, щоб розрядити паузу' },
   { command: 'stats', description: 'Статистика і її зацікавленість' },
+  { command: 'chat', description: 'Підключити її чат' },
   { command: 'tone', description: 'Обрати тон спілкування' },
   { command: 'about', description: 'Розповісти про неї' },
   { command: 'settings', description: 'Поточні налаштування' },
@@ -32,6 +34,7 @@ export const HELP = `Пересилай мені її повідомлення (
 ${MENU.questions} — питання, щоб розрядити незручну паузу
 ${MENU.stats} — хто скільки пише і наскільки вона зацікавлена
 ${MENU.tone} — обрати, як мені писати
+${MENU.chat} — підключити її чат, щоб бот сам бачив повідомлення і відправляв відповіді
 ${MENU.about} — ім'я, як познайомились, що їй подобається
 ${MENU.emoji} — увімкнути/вимкнути емодзі у відповідях
 ${MENU.settings} — подивитись і змінити налаштування

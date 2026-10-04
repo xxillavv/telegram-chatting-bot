@@ -40,6 +40,17 @@ export interface Session {
   editTarget?: string;
   // Останні запропоновані питання — щоб обрати одне кнопкою
   questions?: string[];
+  // Підключення через Telegram Business — бот бачить її чат і може відповідати від його імені
+  business?: {
+    connectionId: string;
+    ownerId: number;
+    canReply: boolean;
+    enabled: boolean;
+  };
+  // Чат з нею, за яким стежимо
+  linked?: { chatId: number; name: string };
+  // Бізнес-чати, з яких приходили повідомлення — щоб обрати, який підключити
+  seenChats: Record<number, string>;
   // Не скидається разом з історією — стиль один на весь чат
   styleEdits: StyleEdit[];
 }

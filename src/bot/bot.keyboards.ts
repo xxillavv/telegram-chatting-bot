@@ -9,19 +9,26 @@ type InlineKeyboard = Markup.Markup<InlineKeyboardMarkup>;
 export const mainMenu: Markup.Markup<ReplyKeyboardMarkup> = Markup.keyboard([
   [MENU.questions, MENU.stats],
   [MENU.tone, MENU.about],
-  [MENU.settings, MENU.reset],
-  [MENU.emoji, MENU.help],
+  [MENU.chat, MENU.settings],
+  [MENU.emoji, MENU.reset],
+  [MENU.help],
 ])
   .resize()
   .persistent();
 
-export const replyKeyboard: InlineKeyboard = Markup.inlineKeyboard([
-  [Markup.button.callback('✏️ Підправити', 'edit_reply')],
-  [
-    Markup.button.callback('🔄 Інший варіант', 'regen'),
-    Markup.button.callback('✂️ Коротше', 'shorter'),
-  ],
-]);
+const sendButton = Markup.button.callback('✅ Відправити', 'send_reply');
+
+// Кнопка «Відправити» — лише коли її чат підключено через Telegram Business
+export function replyKeyboard(canSend: boolean): InlineKeyboard {
+  return Markup.inlineKeyboard([
+    ...(canSend ? [[sendButton]] : []),
+    [Markup.button.callback('✏️ Підправити', 'edit_reply')],
+    [
+      Markup.button.callback('🔄 Інший варіант', 'regen'),
+      Markup.button.callback('✂️ Коротше', 'shorter'),
+    ],
+  ]);
+}
 
 export function questionsKeyboard(count: number): InlineKeyboard {
   return Markup.inlineKeyboard([
@@ -32,10 +39,29 @@ export function questionsKeyboard(count: number): InlineKeyboard {
   ]);
 }
 
-export const questionKeyboard: InlineKeyboard = Markup.inlineKeyboard([
-  Markup.button.callback('✏️ Підправити', 'edit_reply'),
-  Markup.button.callback('🔄 Інші питання', 'more_questions'),
-]);
+export function questionKeyboard(canSend: boolean): InlineKeyboard {
+  return Markup.inlineKeyboard([
+    ...(canSend ? [[sendButton]] : []),
+    [
+      Markup.button.callback('✏️ Підправити', 'edit_reply'),
+      Markup.button.callback('🔄 Інші питання', 'more_questions'),
+    ],
+  ]);
+}
+
+export function chatKeyboard(session: Session): InlineKeyboard {
+  const others = Object.entries(session.seenChats).filter(
+    ([id]) => Number(id) !== session.linked?.chatId,
+  );
+  return Markup.inlineKeyboard([
+    ...others.map(([id, name]) => [
+      Markup.button.callback(`🔗 ${name}`, `link:${id}`),
+    ]),
+    ...(session.linked
+      ? [[Markup.button.callback('🔌 Відключити', 'unlink')]]
+      : []),
+  ]);
+}
 
 export function toneKeyboard(session: Session): InlineKeyboard {
   const current = session.customTone ? null : session.toneKey;

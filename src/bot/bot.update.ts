@@ -11,17 +11,15 @@ import {
 } from 'nestjs-telegraf';
 import { Context, Telegraf } from 'telegraf';
 import type { Message } from 'telegraf/types';
-
-type ForwardOrigin = Message.TextMessage['forward_origin'];
 import { AiService } from '../ai/ai.service';
-import { SpeechService } from '../ai/speech.service';
 import { SessionService } from '../session/session.service';
 import { renderContributionChart } from '../stats/stats.chart';
 import { formatInterest, formatStats } from '../stats/stats.text';
 import { DEFAULT_TONE, findTone } from '../tones/tones';
-import { BATCH_DELAY_MS, COMMANDS, HELP, MENU } from './bot.constants';
+import { COMMANDS, HELP, MENU } from './bot.constants';
 import {
   cancelKeyboard,
+  chatKeyboard,
   mainMenu,
   questionKeyboard,
   questionsKeyboard,
@@ -30,9 +28,10 @@ import {
   settingsKeyboard,
   toneKeyboard,
 } from './bot.keyboards';
+import { ConversationService } from './conversation.service';
+import { extractAudio } from './media';
 
-// Telegram не віддає ботам файли, більші за 20 МБ
-const MAX_AUDIO_BYTES = 20 * 1024 * 1024;
+type ForwardOrigin = Message.TextMessage['forward_origin'];
 
 function escapeHtml(text: string): string {
   return text
@@ -51,13 +50,11 @@ const CUSTOM_TONE_PROMPT =
 
 @Update()
 export class BotUpdate implements OnModuleInit {
-  private readonly timers = new Map<number, NodeJS.Timeout>();
-
   constructor(
     @InjectBot() private readonly bot: Telegraf,
     private readonly sessions: SessionService,
     private readonly ai: AiService,
-    private readonly speech: SpeechService,
+    private readonly conversation: ConversationService,
   ) {}
 
   // Список команд для синьої кнопки «Меню» поруч із полем вводу
@@ -105,7 +102,10 @@ export class BotUpdate implements OnModuleInit {
     // Як і звичайна відповідь: коли вона відповість, питання піде в історію
     session.draft = question;
     await ctx.answerCbQuery();
-    await ctx.reply(question, questionKeyboard);
+    await ctx.reply(
+      question,
+      questionKeyboard(this.conversation.canSend(session)),
+    );
   }
 
   @Command('stats')
@@ -271,9 +271,8 @@ export class BotUpdate implements OnModuleInit {
   @Action('regen')
   async regen(@Ctx() ctx: Context) {
     await ctx.answerCbQuery();
-    await this.generate(
+    await this.conversation.generate(
       ctx.chat!.id,
-      ctx,
       'Дай інший варіант, не схожий на попередній.',
     );
   }
@@ -281,10 +280,71 @@ export class BotUpdate implements OnModuleInit {
   @Action('shorter')
   async shorter(@Ctx() ctx: Context) {
     await ctx.answerCbQuery();
-    await this.generate(
+    await this.conversation.generate(
       ctx.chat!.id,
-      ctx,
       'Зроби відповідь коротшою і простішою.',
+    );
+  }
+
+  @Action('send_reply')
+  async sendReply(@Ctx() ctx: Context) {
+    const message = ctx.callbackQuery?.message;
+    if (!message || !('text' in message)) return ctx.answerCbQuery();
+    const session = this.sessions.get(ctx.chat!.id);
+    if (!this.conversation.canSend(session)) {
+      return ctx.answerCbQuery('Чат не підключено', { show_alert: true });
+    }
+
+    // Прибираємо кнопки одразу, щоб не відправити двічі
+    await ctx.editMessageReplyMarkup(undefined);
+    await ctx.answerCbQuery('Відправляю…');
+    try {
+      await this.conversation.sendToHer(ctx.chat!.id, message.text);
+      await ctx.reply(`✅ Відправлено ${session.linked!.name}`);
+    } catch (error) {
+      console.error(error);
+      await ctx.reply(
+        'Не вдалося відправити 🙏 Перевір, що в налаштуваннях чат-бота увімкнено «Відповідати на повідомлення».',
+      );
+    }
+  }
+
+  @Command('chat')
+  async chatCommand(@Ctx() ctx: Context) {
+    await this.showChat(ctx);
+  }
+
+  @Hears(MENU.chat)
+  async chatButton(@Ctx() ctx: Context) {
+    await this.showChat(ctx);
+  }
+
+  @Action(/^link:(-?\d+)$/)
+  async linkChat(@Ctx() ctx: Context & { match: RegExpExecArray }) {
+    const session = this.sessions.get(ctx.chat!.id);
+    const chatId = Number(ctx.match[1]);
+    const name = session.seenChats[chatId];
+    if (!name) return ctx.answerCbQuery('Цей чат уже недоступний');
+
+    // Інша дівчина — інша переписка
+    if (session.linked && session.linked.chatId !== chatId) {
+      this.sessions.resetHistory(ctx.chat!.id);
+    }
+    session.linked = { chatId, name };
+    await ctx.answerCbQuery(`Підключено ${name}`);
+    await ctx.editMessageText(
+      `🔗 Стежу за чатом з ${name}. Її нові повідомлення прийдуть сюди разом з варіантом відповіді.`,
+    );
+  }
+
+  @Action('unlink')
+  async unlinkChat(@Ctx() ctx: Context) {
+    const session = this.sessions.get(ctx.chat!.id);
+    session.linked = undefined;
+    session.draft = undefined;
+    await ctx.answerCbQuery('Відключено');
+    await ctx.editMessageText(
+      '🔌 Чат відключено. Повідомлення знову можна пересилати вручну.',
     );
   }
 
@@ -301,22 +361,13 @@ export class BotUpdate implements OnModuleInit {
   // Голосові, кружечки та аудіофайли — розшифровуємо і далі обробляємо як текст
   @On(['voice', 'video_note', 'audio'])
   async onVoice(@Ctx() ctx: Context) {
-    const media = this.extractMedia(ctx.message);
+    const media = extractAudio(ctx.message);
     if (!media) return;
-
-    if (media.size && media.size > MAX_AUDIO_BYTES) {
-      await ctx.reply('Файл завеликий, максимум 20 МБ 🙏');
-      return;
-    }
 
     await ctx.sendChatAction('typing');
     let text: string;
     try {
-      const url = await ctx.telegram.getFileLink(media.fileId);
-      const response = await fetch(url);
-      if (!response.ok) throw new Error(`Telegram file: ${response.status}`);
-      const audio = Buffer.from(await response.arrayBuffer());
-      text = await this.speech.transcribe(audio, media.fileName);
+      text = await this.conversation.transcribe(media);
     } catch (error) {
       console.error(error);
       await ctx.reply('Не вдалося розпізнати голосове, спробуй ще раз 🙏');
@@ -333,30 +384,6 @@ export class BotUpdate implements OnModuleInit {
     await this.handleIncoming(ctx, text, origin);
   }
 
-  private extractMedia(message: Context['message']) {
-    if (!message) return undefined;
-    if ('voice' in message) {
-      const { file_id, file_size } = (message as Message.VoiceMessage).voice;
-      return { fileId: file_id, size: file_size, fileName: 'voice.ogg' };
-    }
-    if ('video_note' in message) {
-      const { file_id, file_size } = (message as Message.VideoNoteMessage)
-        .video_note;
-      return { fileId: file_id, size: file_size, fileName: 'video.mp4' };
-    }
-    if ('audio' in message) {
-      const { file_id, file_size, file_name } = (
-        message as Message.AudioMessage
-      ).audio;
-      return {
-        fileId: file_id,
-        size: file_size,
-        fileName: file_name ?? 'audio.mp3',
-      };
-    }
-    return undefined;
-  }
-
   private async handleIncoming(
     ctx: Context,
     text: string,
@@ -370,6 +397,7 @@ export class BotUpdate implements OnModuleInit {
       await ctx.reply(
         "Запам'ятав ✅ Наступні відповіді писатиму ближче до твого стилю.",
       );
+      await ctx.reply(text, replyKeyboard(this.conversation.canSend(session)));
       return;
     }
 
@@ -387,37 +415,15 @@ export class BotUpdate implements OnModuleInit {
 
     if (forwardedFromMe || mineManual) {
       // Він переслав свою справжню відповідь — вона замінює нашу чернетку
-      // і заразом показує, як він пише насправді
-      const mine = mineManual ? text.slice(mineManual[0].length).trim() : text;
-      if (session.draft) {
-        this.sessions.addStyleEdit(chatId, {
-          before: session.draft,
-          after: mine,
-        });
-      }
-      session.draft = undefined;
-      this.sessions.addLine(chatId, {
-        from: 'me',
-        text: mine,
-      });
+      this.conversation.addMine(
+        chatId,
+        mineManual ? text.slice(mineManual[0].length).trim() : text,
+      );
       return;
     }
 
     // Вона відповіла — отже, нашу останню чернетку він відправив
-    if (session.draft) {
-      this.sessions.addLine(chatId, { from: 'me', text: session.draft });
-      session.draft = undefined;
-    }
-    this.sessions.addLine(chatId, { from: 'her', text });
-
-    clearTimeout(this.timers.get(chatId));
-    this.timers.set(
-      chatId,
-      setTimeout(() => {
-        this.timers.delete(chatId);
-        void this.generate(chatId, ctx);
-      }, BATCH_DELAY_MS),
-    );
+    this.conversation.addHers(chatId, text, true);
   }
 
   private async showHelp(ctx: Context) {
@@ -441,6 +447,58 @@ export class BotUpdate implements OnModuleInit {
       console.error(error);
       await ctx.reply('Не вдалося придумати питання, спробуй ще раз 🙏');
     }
+  }
+
+  private async showChat(ctx: Context) {
+    this.clearInput(ctx);
+    const session = this.sessions.get(ctx.chat!.id);
+    // can_connect_to_business з'явилось у Bot API 7.2, Telegraf 4.16 про нього ще не знає
+    const me = (await this.bot.telegram.getMe()) as Awaited<
+      ReturnType<Telegraf['telegram']['getMe']>
+    > & { can_connect_to_business?: boolean };
+
+    if (!session.business?.enabled) {
+      await ctx.reply(
+        [
+          '🔗 Підключення її чату',
+          '',
+          'Бот сам бачитиме її повідомлення, а відповіді відправлятиме від твого імені по кнопці «✅ Відправити». Доступу до акаунта бот не отримує, все через офіційний Telegram для бізнесу.',
+          '',
+          '1. Потрібен Telegram Premium (Telegram для бізнесу входить у нього).',
+          '2. Налаштування → Telegram для бізнесу → Чат-боти.',
+          `3. Введи @${me.username}.`,
+          '4. У «Доступ до чатів» обери «Лише вибрані» і додай її.',
+          '5. Увімкни дозвіл «Відповідати на повідомлення».',
+          ...(me.can_connect_to_business === false
+            ? [
+                '',
+                `⚠️ Спершу в @BotFather: /mybots → @${me.username} → Bot Settings → Business Mode → Turn on. Без цього Telegram не знайде бота.`,
+              ]
+            : []),
+          '',
+          'Коли вона напише, я запропоную підключити чат.',
+        ].join('\n'),
+      );
+      return;
+    }
+
+    const lines = ['🔗 Підключення її чату', ''];
+    if (!session.business.canReply) {
+      lines.push(
+        '⚠️ У бота нема дозволу відповідати, тож кнопки «Відправити» не буде. Увімкни «Відповідати на повідомлення» в налаштуваннях чат-бота.',
+        '',
+      );
+    }
+    if (session.linked) {
+      lines.push(`Стежу за чатом з ${session.linked.name} ✅`);
+    } else if (Object.keys(session.seenChats).length) {
+      lines.push('Обери, за чиїм чатом стежити:');
+    } else {
+      lines.push(
+        'Telegram для бізнесу підключено. Щойно вона напише в одному з вибраних чатів, я запропоную його підключити.',
+      );
+    }
+    await ctx.reply(lines.join('\n'), chatKeyboard(session));
   }
 
   private async showStats(ctx: Context) {
@@ -539,7 +597,7 @@ export class BotUpdate implements OnModuleInit {
     const tone = session.customTone
       ? `✍️ ${session.customTone}`
       : (findTone(session.toneKey) ?? DEFAULT_TONE).label;
-    return `⚙️ Налаштування\n\nТон: ${tone}\nЕмодзі: ${session.emoji ? 'увімк' : 'вимк'}\nКонтекст: ${session.about ?? '—'}\nПравок мого стилю: ${session.styleEdits.length}\nПовідомлень в історії: ${session.history.length}`;
+    return `⚙️ Налаштування\n\nТон: ${tone}\nЧат: ${session.linked ? `🔗 ${session.linked.name}` : 'не підключено'}\nЕмодзі: ${session.emoji ? 'увімк' : 'вимк'}\nКонтекст: ${session.about ?? '—'}\nПравок мого стилю: ${session.styleEdits.length}\nПовідомлень в історії: ${session.history.length}`;
   }
 
   // Якщо бот чекав на введення тону чи контексту, а користувач пішов у меню — забуваємо про це
@@ -547,23 +605,5 @@ export class BotUpdate implements OnModuleInit {
     const session = this.sessions.get(ctx.chat!.id);
     session.awaiting = undefined;
     session.editTarget = undefined;
-  }
-
-  private async generate(chatId: number, ctx: Context, hint?: string) {
-    const session = this.sessions.get(chatId);
-    if (!session.history.some((line) => line.from === 'her')) {
-      await ctx.reply('Спершу перешли її повідомлення 🙂');
-      return;
-    }
-
-    await ctx.sendChatAction('typing');
-    try {
-      const reply = await this.ai.generateReply(session, hint);
-      session.draft = reply;
-      await ctx.reply(reply, replyKeyboard);
-    } catch (error) {
-      console.error(error);
-      await ctx.reply('Не вдалося згенерувати відповідь, спробуй ще раз 🙏');
-    }
   }
 }

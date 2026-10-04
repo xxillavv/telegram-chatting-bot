@@ -15,6 +15,13 @@ import { AudioMedia } from './media';
 const MAX_AUDIO_BYTES = 20 * 1024 * 1024;
 
 // Спільна логіка розмови — для пересланих повідомлень і для підключеного чату (Telegram Business)
+function splitMessages(text: string): string[] {
+  return text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
 @Injectable()
 export class ConversationService {
   // Її повідомлення, що назбирались, поки чекаємо кінця пачки
@@ -74,7 +81,7 @@ export class ConversationService {
     const session = this.sessions.get(chatId);
     if (session.draft) {
       if (live) void this.markDraftOutdated(chatId);
-      else this.sessions.addLine(chatId, { from: 'me', text: session.draft });
+      else this.addMyLines(chatId, session.draft);
     }
     session.draft = undefined;
     session.draftMessageId = undefined;
@@ -218,10 +225,19 @@ export class ConversationService {
     // Telegraf 4.16 не знає business_connection_id, але передає extra в API як є
     const extra = { business_connection_id: connectionId } as object;
 
-    await this.bot.telegram.sendMessage(herChatId, text, extra);
+    // Кожен рядок — окреме повідомлення, як він і пише
+    for (const line of splitMessages(text)) {
+      await this.bot.telegram.sendMessage(herChatId, line, extra);
+    }
 
     session.draft = undefined;
     session.draftMessageId = undefined;
-    this.sessions.addLine(chatId, { from: 'me', text });
+    this.addMyLines(chatId, text);
+  }
+
+  private addMyLines(chatId: number, text: string) {
+    for (const line of splitMessages(text)) {
+      this.sessions.addLine(chatId, { from: 'me', text: line });
+    }
   }
 }

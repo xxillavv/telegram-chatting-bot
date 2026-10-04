@@ -11,6 +11,11 @@ import {
 import { LLM_CLIENT } from './llm.client';
 import { InterestAnalysis } from './interest.types';
 import { INTEREST_PROMPT } from './prompts/interest.prompt';
+import {
+  MAX_REPLY_MESSAGES,
+  MY_STYLE,
+  STYLE_FORMAT,
+} from './prompts/my-style.prompt';
 import { formatStats } from '../stats/stats.text';
 
 const EMOJI_RE = /[\p{Extended_Pictographic}\u{FE0F}\u{200D}]/gu;
@@ -26,6 +31,22 @@ function stripDashes(text: string): string {
 
 function stripEmoji(text: string): string {
   return text.replace(EMOJI_RE, '').replace(/ {2,}/g, ' ').trim();
+}
+
+// Кожен рядок — окреме повідомлення: з маленької, без крапки в кінці, як він пише
+function applyStyleFormat(text: string): string {
+  return text
+    .split('\n')
+    .map((line) => {
+      let result = line.trim();
+      if (STYLE_FORMAT.noTrailingPeriod) result = result.replace(/\.+$/, '');
+      if (STYLE_FORMAT.lowercase) {
+        result = result.charAt(0).toLocaleLowerCase('uk') + result.slice(1);
+      }
+      return result;
+    })
+    .filter(Boolean)
+    .join('\n');
 }
 
 const QUESTIONS_COUNT = 3;
@@ -45,7 +66,8 @@ export class AiService {
   async generateReply(session: Session, hint?: string): Promise<string> {
     let userPrompt = this.buildDialogPrompt(session);
     if (hint) userPrompt += `\n${hint}`;
-    return this.complete(session, userPrompt);
+    const text = await this.complete(session, userPrompt);
+    return text.split('\n').slice(0, MAX_REPLY_MESSAGES).join('\n');
   }
 
   // Питання, щоб розрядити паузу — з урахуванням контексту, переписки, тону і стилю
@@ -60,7 +82,7 @@ export class AiService {
 - Чіпляйся за контекст про неї і за теми з переписки, якщо вони є. Не перепитуй те, що вже обговорили.
 - Кожне питання в обраному тоні і моєму стилі, коротко, як у месенджері.
 - Питання мають бути різними за темою.
-Формат: кожне питання з нового рядка, без нумерації, лапок і пояснень.`;
+Формат: кожне питання одним рядком (не розбивай питання на кілька повідомлень), кожне з нового рядка, без нумерації, лапок і пояснень.`;
 
     const text = await this.complete(session, userPrompt);
     const questions = text
@@ -146,6 +168,7 @@ export class AiService {
     // Модель іноді ігнорує заборону — підчищаємо самі
     if (text) text = stripDashes(text);
     if (text && !session.emoji) text = stripEmoji(text);
+    if (text) text = applyStyleFormat(text);
     if (!text) throw new Error('LLM повернула порожню відповідь');
     return text;
   }
@@ -195,9 +218,16 @@ export class AiService {
     }
 
     parts.push(`${STYLE_RULES}\n- ${session.emoji ? EMOJI_ON : EMOJI_OFF}`);
+    parts.push(MY_STYLE);
 
-    if (session.about) {
-      parts.push(`Контекст про неї та їхнє спілкування:\n${session.about}`);
+    const context = [
+      session.linked && `Її ім'я в Telegram: ${session.linked.name}`,
+      session.about,
+    ].filter(Boolean);
+    if (context.length) {
+      parts.push(
+        `Контекст про неї та їхнє спілкування:\n${context.join('\n')}`,
+      );
     }
 
     // Стиль — останнім: моделі сильніше зважають на кінець промпта

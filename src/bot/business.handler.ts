@@ -8,6 +8,7 @@ import {
   BusinessMessage,
   canReply,
 } from './business.types';
+import { isAllowed } from './access';
 import { ConversationService } from './conversation.service';
 import { describeNonText, extractAudio } from './media';
 
@@ -55,6 +56,13 @@ export class BusinessHandler implements OnModuleInit {
   }
 
   private async onConnection(connection: BusinessConnection) {
+    // Чужий акаунт підключив нашого бота — ігноруємо
+    if (!isAllowed(connection.user.id)) {
+      console.warn(
+        `Business-підключення від чужого акаунта: ${connection.user.id}`,
+      );
+      return;
+    }
     const session = this.applyConnection(connection);
     const owner = connection.user_chat_id;
 
@@ -76,13 +84,16 @@ export class BusinessHandler implements OnModuleInit {
   }
 
   // Після перезапуску сесії порожні — дізнаємось власника підключення через API
-  private async resolveSession(connectionId: string): Promise<Session> {
+  private async resolveSession(
+    connectionId: string,
+  ): Promise<Session | undefined> {
     const known = this.sessions.findByConnection(connectionId);
     if (known) return known;
     const connection = (await this.bot.telegram.callApi(
       'getBusinessConnection' as never,
       { business_connection_id: connectionId } as never,
     )) as BusinessConnection;
+    if (!isAllowed(connection.user.id)) return undefined;
     return this.applyConnection(connection);
   }
 
@@ -91,6 +102,7 @@ export class BusinessHandler implements OnModuleInit {
     if (message.sender_business_bot) return;
 
     const session = await this.resolveSession(message.business_connection_id);
+    if (!session) return;
     const owner = session.business!.ownerId;
     const chat = message.chat as {
       id: number;

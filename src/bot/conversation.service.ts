@@ -6,13 +6,13 @@ import { SpeechService } from '../ai/speech.service';
 import { SessionService } from '../session/session.service';
 import { Session } from '../session/session.types';
 import { FORWARD_DELAY_MS, liveDelay, MAX_BATCH_WAIT_MS } from './batching';
-import { replyKeyboard } from './bot.keyboards';
+import { AUTO_SEND_SECONDS } from './auto-send';
+import { autoSendKeyboard, replyKeyboard } from './bot.keyboards';
+import { canSendTo } from './business.types';
 import { AudioMedia } from './media';
 
 // Telegram не віддає ботам файли, більші за 20 МБ
 const MAX_AUDIO_BYTES = 20 * 1024 * 1024;
-
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // Спільна логіка розмови — для пересланих повідомлень і для підключеного чату (Telegram Business)
 @Injectable()
@@ -32,10 +32,16 @@ export class ConversationService {
     private readonly speech: SpeechService,
   ) {}
 
+  // Таймери автовідправки по чатах
+  private readonly autoTimers = new Map<number, NodeJS.Timeout>();
+
   canSend(session: Session): boolean {
-    return Boolean(
-      session.business?.enabled && session.business.canReply && session.linked,
-    );
+    return canSendTo(session);
+  }
+
+  cancelAutoSend(chatId: number) {
+    clearTimeout(this.autoTimers.get(chatId));
+    this.autoTimers.delete(chatId);
   }
 
   async transcribe(media: AudioMedia): Promise<string> {
@@ -72,6 +78,7 @@ export class ConversationService {
     }
     session.draft = undefined;
     session.draftMessageId = undefined;
+    this.cancelAutoSend(chatId);
     this.bumpGeneration(chatId);
     this.sessions.addLine(chatId, { from: 'her', text });
     this.scheduleReply(chatId, text, live);
@@ -156,12 +163,14 @@ export class ConversationService {
       // Поки модель думала, вона дописала — цей варіант уже не про те
       if (this.generations.get(chatId) !== generation) return;
       session.draft = reply;
+      const auto = Boolean(session.autoSend) && this.canSend(session);
       const sent = await this.bot.telegram.sendMessage(
         chatId,
         reply,
-        replyKeyboard(this.canSend(session)),
+        auto ? autoSendKeyboard : replyKeyboard(this.canSend(session)),
       );
       session.draftMessageId = sent.message_id;
+      if (auto) this.scheduleAutoSend(chatId, reply, sent.message_id);
     } catch (error) {
       console.error(error);
       await this.bot.telegram.sendMessage(
@@ -171,17 +180,44 @@ export class ConversationService {
     }
   }
 
-  // Відправка їй від його імені через Telegram Business — з «друкує…», щоб виглядало природно
+  // Якщо за цей час він не натиснув «Стоп», не правив і вона не дописала — відправляємо самі
+  private scheduleAutoSend(chatId: number, text: string, messageId: number) {
+    this.cancelAutoSend(chatId);
+    const timer = setTimeout(() => {
+      this.autoTimers.delete(chatId);
+      void (async () => {
+        const session = this.sessions.get(chatId);
+        if (!session.autoSend || session.draft !== text) return;
+        try {
+          await this.sendToHer(chatId, text);
+          await this.bot.telegram.editMessageText(
+            chatId,
+            messageId,
+            undefined,
+            `🤖 Відправлено автоматично\n\n${text}`,
+          );
+        } catch (error) {
+          console.error(error);
+          await this.bot.telegram.sendMessage(
+            chatId,
+            'Автовідправка не вдалась 🙏 Відправ вручну або перевір дозволи чат-бота.',
+          );
+        }
+      })();
+    }, AUTO_SEND_SECONDS * 1000);
+    this.autoTimers.set(chatId, timer);
+  }
+
+  // Відправка їй від його імені через Telegram Business — одразу, без затримки
   async sendToHer(chatId: number, text: string) {
     const session = this.sessions.get(chatId);
     if (!this.canSend(session)) throw new Error('Чат не підключено');
+    this.cancelAutoSend(chatId);
     const { connectionId } = session.business!;
     const herChatId = session.linked!.chatId;
     // Telegraf 4.16 не знає business_connection_id, але передає extra в API як є
     const extra = { business_connection_id: connectionId } as object;
 
-    await this.bot.telegram.sendChatAction(herChatId, 'typing', extra);
-    await sleep(Math.min(1500 + text.length * 50, 5000));
     await this.bot.telegram.sendMessage(herChatId, text, extra);
 
     session.draft = undefined;

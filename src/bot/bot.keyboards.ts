@@ -3,6 +3,8 @@ import type { InlineKeyboardMarkup, ReplyKeyboardMarkup } from 'telegraf/types';
 import { Session } from '../session/session.types';
 import { TONES } from '../tones/tones';
 import { MENU } from './bot.constants';
+import { canSendTo } from './business.types';
+import { AUTO_SEND_SECONDS } from './auto-send';
 
 type InlineKeyboard = Markup.Markup<InlineKeyboardMarkup>;
 
@@ -39,6 +41,27 @@ export function questionsKeyboard(count: number): InlineKeyboard {
   ]);
 }
 
+// Варіант, який піде сам, якщо не зупинити
+export const autoSendKeyboard: InlineKeyboard = Markup.inlineKeyboard([
+  [
+    Markup.button.callback(
+      `⏸ Стоп (піде сам через ${AUTO_SEND_SECONDS} с)`,
+      'auto_stop',
+    ),
+  ],
+  [
+    Markup.button.callback('🚀 Зараз', 'send_reply'),
+    Markup.button.callback('✏️ Підправити', 'edit_reply'),
+  ],
+]);
+
+function autoSendButton(session: Session) {
+  return Markup.button.callback(
+    session.autoSend ? '🤖 Автовідправка: увімк' : '✋ Автовідправка: вимк',
+    'toggle_auto',
+  );
+}
+
 export function questionKeyboard(canSend: boolean): InlineKeyboard {
   return Markup.inlineKeyboard([
     ...(canSend ? [[sendButton]] : []),
@@ -57,6 +80,7 @@ export function chatKeyboard(session: Session): InlineKeyboard {
     ...others.map(([id, name]) => [
       Markup.button.callback(`🔗 ${name}`, `link:${id}`),
     ]),
+    ...(canSendTo(session) ? [[autoSendButton(session)]] : []),
     ...(session.linked
       ? [[Markup.button.callback('🔌 Відключити', 'unlink')]]
       : []),
@@ -94,6 +118,7 @@ export function settingsKeyboard(session: Session): InlineKeyboard {
       ),
       Markup.button.callback('🗑 Видалити контекст', 'clear_about'),
     ],
+    ...(canSendTo(session) ? [[autoSendButton(session)]] : []),
     ...(session.styleEdits.length
       ? [[Markup.button.callback('🧽 Скинути мій стиль', 'clear_style')]]
       : []),

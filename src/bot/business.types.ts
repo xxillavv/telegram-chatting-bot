@@ -1,4 +1,5 @@
 import type { Message, User } from 'telegraf/types';
+import { Session } from '../session/session.types';
 
 // Telegraf 4.16 ще не знає про Telegram Business (Bot API 7.2+) — описуємо потрібне самі
 
@@ -28,4 +29,11 @@ export const BUSINESS_UPDATES = [
 
 export function canReply(connection: BusinessConnection): boolean {
   return Boolean(connection.rights?.can_reply ?? connection.can_reply);
+}
+
+// Відправляти їй можна лише через підключений чат з дозволом відповідати
+export function canSendTo(session: Session): boolean {
+  return Boolean(
+    session.business?.enabled && session.business.canReply && session.linked,
+  );
 }

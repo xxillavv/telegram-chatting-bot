@@ -28,6 +28,7 @@ import {
   settingsKeyboard,
   toneKeyboard,
 } from './bot.keyboards';
+import { AUTO_SEND_SECONDS } from './auto-send';
 import { ConversationService } from './conversation.service';
 import { extractAudio } from './media';
 
@@ -246,6 +247,8 @@ export class BotUpdate implements OnModuleInit {
 
   @Action('edit_reply')
   async editReply(@Ctx() ctx: Context) {
+    // Правка — значить, він не хоче, щоб пішов поточний варіант
+    this.conversation.cancelAutoSend(ctx.chat!.id);
     const message = ctx.callbackQuery?.message;
     if (!message || !('text' in message)) return ctx.answerCbQuery();
     const session = this.sessions.get(ctx.chat!.id);
@@ -345,11 +348,39 @@ export class BotUpdate implements OnModuleInit {
     );
   }
 
+  @Action('auto_stop')
+  async autoStop(@Ctx() ctx: Context) {
+    const session = this.sessions.get(ctx.chat!.id);
+    this.conversation.cancelAutoSend(ctx.chat!.id);
+    await ctx.answerCbQuery('Зупинено, відправляй сам');
+    await ctx.editMessageReplyMarkup(
+      replyKeyboard(this.conversation.canSend(session)).reply_markup,
+    );
+  }
+
+  @Action('toggle_auto')
+  async toggleAuto(@Ctx() ctx: Context) {
+    const session = this.sessions.get(ctx.chat!.id);
+    session.autoSend = !session.autoSend;
+    if (!session.autoSend) this.conversation.cancelAutoSend(ctx.chat!.id);
+    await ctx.answerCbQuery(
+      session.autoSend
+        ? `Автовідправка увімкнена: ${AUTO_SEND_SECONDS} с, щоб натиснути «Стоп»`
+        : 'Автовідправку вимкнено',
+    );
+    await ctx.editMessageReplyMarkup(
+      (ctx.callbackQuery?.message as { text?: string })?.text?.startsWith('⚙️')
+        ? settingsKeyboard(session).reply_markup
+        : chatKeyboard(session).reply_markup,
+    );
+  }
+
   @Action('unlink')
   async unlinkChat(@Ctx() ctx: Context) {
     const session = this.sessions.get(ctx.chat!.id);
     session.linked = undefined;
     session.draft = undefined;
+    this.conversation.cancelAutoSend(ctx.chat!.id);
     await ctx.answerCbQuery('Відключено');
     await ctx.editMessageText(
       '🔌 Чат відключено. Повідомлення знову можна пересилати вручну.',
@@ -609,7 +640,7 @@ export class BotUpdate implements OnModuleInit {
     const tone = session.customTone
       ? `✍️ ${session.customTone}`
       : (findTone(session.toneKey) ?? DEFAULT_TONE).label;
-    return `⚙️ Налаштування\n\nТон: ${tone}\nЧат: ${session.linked ? `🔗 ${session.linked.name}` : 'не підключено'}\nЕмодзі: ${session.emoji ? 'увімк' : 'вимк'}\nКонтекст: ${session.about ?? '—'}\nПравок мого стилю: ${session.styleEdits.length}\nПовідомлень в історії: ${session.history.length}`;
+    return `⚙️ Налаштування\n\nТон: ${tone}\nЧат: ${session.linked ? `🔗 ${session.linked.name}` : 'не підключено'}\nАвтовідправка: ${session.autoSend ? 'увімк' : 'вимк'}\nЕмодзі: ${session.emoji ? 'увімк' : 'вимк'}\nКонтекст: ${session.about ?? '—'}\nПравок мого стилю: ${session.styleEdits.length}\nПовідомлень в історії: ${session.history.length}`;
   }
 
   // Якщо бот чекав на введення тону чи контексту, а користувач пішов у меню — забуваємо про це

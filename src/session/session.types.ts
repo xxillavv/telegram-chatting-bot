@@ -49,6 +49,8 @@ export interface Session {
     canReply: boolean;
     enabled: boolean;
   };
+  // Відправляти відповіді самому, якщо він не зупинив таймер
+  autoSend?: boolean;
   // Чат з нею, за яким стежимо
   linked?: { chatId: number; name: string };
   // Бізнес-чати, з яких приходили повідомлення — щоб обрати, який підключити

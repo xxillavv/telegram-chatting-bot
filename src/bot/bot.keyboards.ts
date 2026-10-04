@@ -7,6 +7,7 @@ import { MENU } from './bot.constants';
 type InlineKeyboard = Markup.Markup<InlineKeyboardMarkup>;
 
 export const mainMenu: Markup.Markup<ReplyKeyboardMarkup> = Markup.keyboard([
+  [MENU.questions],
   [MENU.tone, MENU.about],
   [MENU.settings, MENU.reset],
   [MENU.emoji, MENU.help],
@@ -20,6 +21,20 @@ export const replyKeyboard: InlineKeyboard = Markup.inlineKeyboard([
     Markup.button.callback('🔄 Інший варіант', 'regen'),
     Markup.button.callback('✂️ Коротше', 'shorter'),
   ],
+]);
+
+export function questionsKeyboard(count: number): InlineKeyboard {
+  return Markup.inlineKeyboard([
+    Array.from({ length: count }, (_, i) =>
+      Markup.button.callback(`${i + 1}`, `question:${i}`),
+    ),
+    [Markup.button.callback('🔄 Інші питання', 'more_questions')],
+  ]);
+}
+
+export const questionKeyboard: InlineKeyboard = Markup.inlineKeyboard([
+  Markup.button.callback('✏️ Підправити', 'edit_reply'),
+  Markup.button.callback('🔄 Інші питання', 'more_questions'),
 ]);
 
 export function toneKeyboard(session: Session): InlineKeyboard {

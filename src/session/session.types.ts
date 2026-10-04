@@ -25,6 +25,8 @@ export interface Session {
   awaiting?: 'tone' | 'about' | 'edit';
   // Текст відповіді, яку він зараз править
   editTarget?: string;
+  // Останні запропоновані питання — щоб обрати одне кнопкою
+  questions?: string[];
   // Не скидається разом з історією — стиль один на весь чат
   styleEdits: StyleEdit[];
 }

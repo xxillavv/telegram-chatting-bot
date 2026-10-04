@@ -3,6 +3,7 @@ export const BATCH_DELAY_MS = 1500;
 
 // Тексти кнопок головного меню — по них же ловимо натискання через @Hears
 export const MENU = {
+  questions: '💬 Питання',
   tone: '🎭 Тон',
   about: '👩 Про неї',
   settings: '⚙️ Налаштування',
@@ -13,6 +14,7 @@ export const MENU = {
 
 export const COMMANDS = [
   { command: 'start', description: 'Відкрити меню' },
+  { command: 'questions', description: 'Питання, щоб розрядити паузу' },
   { command: 'tone', description: 'Обрати тон спілкування' },
   { command: 'about', description: 'Розповісти про неї' },
   { command: 'settings', description: 'Поточні налаштування' },
@@ -25,6 +27,7 @@ export const HELP = `Пересилай мені її повідомлення (
 Якщо пишеш текст сам, а не пересилаєш, — я вважаю, що це написала вона. Щоб додати свою репліку, почни з «я:» або перешли своє повідомлення.
 
 Кнопки меню внизу:
+${MENU.questions} — питання, щоб розрядити незручну паузу
 ${MENU.tone} — обрати, як мені писати
 ${MENU.about} — ім'я, як познайомились, що їй подобається
 ${MENU.emoji} — увімкнути/вимкнути емодзі у відповідях

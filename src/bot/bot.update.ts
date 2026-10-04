@@ -21,6 +21,8 @@ import { BATCH_DELAY_MS, COMMANDS, HELP, MENU } from './bot.constants';
 import {
   cancelKeyboard,
   mainMenu,
+  questionKeyboard,
+  questionsKeyboard,
   replyKeyboard,
   resetConfirmKeyboard,
   settingsKeyboard,
@@ -72,6 +74,33 @@ export class BotUpdate implements OnModuleInit {
   @Hears(MENU.help)
   async helpButton(@Ctx() ctx: Context) {
     await this.showHelp(ctx);
+  }
+
+  @Command('questions')
+  async questionsCommand(@Ctx() ctx: Context) {
+    await this.showQuestions(ctx);
+  }
+
+  @Hears(MENU.questions)
+  async questionsButton(@Ctx() ctx: Context) {
+    await this.showQuestions(ctx);
+  }
+
+  @Action('more_questions')
+  async moreQuestions(@Ctx() ctx: Context) {
+    await ctx.answerCbQuery();
+    await this.showQuestions(ctx);
+  }
+
+  @Action(/^question:(\d+)$/)
+  async pickQuestion(@Ctx() ctx: Context & { match: RegExpExecArray }) {
+    const session = this.sessions.get(ctx.chat!.id);
+    const question = session.questions?.[Number(ctx.match[1])];
+    if (!question) return ctx.answerCbQuery('Ці питання вже застаріли');
+    // Як і звичайна відповідь: коли вона відповість, питання піде в історію
+    session.draft = question;
+    await ctx.answerCbQuery();
+    await ctx.reply(question, questionKeyboard);
   }
 
   @Command('tone')
@@ -379,6 +408,24 @@ export class BotUpdate implements OnModuleInit {
   private async showHelp(ctx: Context) {
     this.clearInput(ctx);
     await ctx.reply(HELP, mainMenu);
+  }
+
+  private async showQuestions(ctx: Context) {
+    this.clearInput(ctx);
+    const session = this.sessions.get(ctx.chat!.id);
+    await ctx.sendChatAction('typing');
+    try {
+      const questions = await this.ai.generateQuestions(session);
+      session.questions = questions;
+      const list = questions.map((q, i) => `${i + 1}. ${q}`).join('\n\n');
+      await ctx.reply(
+        `💬 Питання, щоб розрядити паузу:\n\n${list}\n\nОбери, яке взяти:`,
+        questionsKeyboard(questions.length),
+      );
+    } catch (error) {
+      console.error(error);
+      await ctx.reply('Не вдалося придумати питання, спробуй ще раз 🙏');
+    }
   }
 
   private async showTones(ctx: Context) {

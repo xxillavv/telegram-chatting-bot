@@ -25,6 +25,14 @@ function stripEmoji(text: string): string {
   return text.replace(EMOJI_RE, '').replace(/ {2,}/g, ' ').trim();
 }
 
+const QUESTIONS_COUNT = 3;
+
+function formatLines(lines: Session['history']): string {
+  return lines
+    .map((line) => `${line.from === 'her' ? 'Вона' : 'Я'}: ${line.text}`)
+    .join('\n');
+}
+
 @Injectable()
 export class AiService {
   private readonly model = process.env.LLM_MODEL || 'openai/gpt-oss-120b';
@@ -32,10 +40,39 @@ export class AiService {
   constructor(@Inject(LLM_CLIENT) private readonly client: OpenAI) {}
 
   async generateReply(session: Session, hint?: string): Promise<string> {
-    const system = this.buildSystemPrompt(session);
-
     let userPrompt = this.buildDialogPrompt(session);
     if (hint) userPrompt += `\n${hint}`;
+    return this.complete(session, userPrompt);
+  }
+
+  // Питання, щоб розрядити паузу — з урахуванням контексту, переписки, тону і стилю
+  async generateQuestions(session: Session): Promise<string[]> {
+    const dialog = session.history.length
+      ? `Наша переписка (останні повідомлення внизу):\n${formatLines(session.history)}`
+      : 'Переписки ще нема.';
+    const userPrompt = `${dialog}
+
+У розмові незручна пауза. Придумай ${QUESTIONS_COUNT} різні питання, які я можу їй написати, щоб легко відновити розмову.
+- Відкриті питання, на які хочеться відповісти розгорнуто, а не «так/ні».
+- Чіпляйся за контекст про неї і за теми з переписки, якщо вони є. Не перепитуй те, що вже обговорили.
+- Кожне питання в обраному тоні і моєму стилі, коротко, як у месенджері.
+- Питання мають бути різними за темою.
+Формат: кожне питання з нового рядка, без нумерації, лапок і пояснень.`;
+
+    const text = await this.complete(session, userPrompt);
+    const questions = text
+      .split('\n')
+      .map((line) => line.replace(/^\s*(\d+[.)]|[-•*])\s*/, '').trim())
+      .filter(Boolean)
+      .slice(0, QUESTIONS_COUNT);
+    if (!questions.length) throw new Error('LLM не повернула питань');
+    return questions;
+  }
+
+  private async complete(
+    session: Session,
+    userPrompt: string,
+  ): Promise<string> {
     if (session.styleEdits.length) {
       const samples = session.styleEdits
         .slice(-3)
@@ -47,7 +84,7 @@ export class AiService {
     const completion = await this.client.chat.completions.create({
       model: this.model,
       messages: [
-        { role: 'system', content: system },
+        { role: 'system', content: this.buildSystemPrompt(session) },
         { role: 'user', content: userPrompt },
       ],
       temperature: 0.9,
@@ -75,22 +112,17 @@ export class AiService {
     let split = history.length;
     while (split > 0 && history[split - 1].from === 'her') split--;
 
-    const format = (lines: Session['history']) =>
-      lines
-        .map((line) => `${line.from === 'her' ? 'Вона' : 'Я'}: ${line.text}`)
-        .join('\n');
-
     const earlier = history.slice(0, split);
     const fresh = history.slice(split);
 
     const parts: string[] = [];
     parts.push(
       earlier.length
-        ? `Попередня переписка:\n${format(earlier)}`
+        ? `Попередня переписка:\n${formatLines(earlier)}`
         : 'Це початок переписки.',
     );
     parts.push(
-      `Її нові повідомлення, на які треба відповісти:\n${format(fresh)}`,
+      `Її нові повідомлення, на які треба відповісти:\n${formatLines(fresh)}`,
     );
     parts.push(
       'Напиши мою наступну відповідь, суворо дотримуючись обраного тону.',

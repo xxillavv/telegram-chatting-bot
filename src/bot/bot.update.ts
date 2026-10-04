@@ -102,10 +102,11 @@ export class BotUpdate implements OnModuleInit {
     // Як і звичайна відповідь: коли вона відповість, питання піде в історію
     session.draft = question;
     await ctx.answerCbQuery();
-    await ctx.reply(
+    const sent = await ctx.reply(
       question,
       questionKeyboard(this.conversation.canSend(session)),
     );
+    session.draftMessageId = sent.message_id;
   }
 
   @Command('stats')
@@ -294,6 +295,13 @@ export class BotUpdate implements OnModuleInit {
     if (!this.conversation.canSend(session)) {
       return ctx.answerCbQuery('Чат не підключено', { show_alert: true });
     }
+    if (!this.conversation.isCurrentDraft(ctx.chat!.id, message.text)) {
+      await ctx.editMessageReplyMarkup(undefined);
+      return ctx.answerCbQuery(
+        'Цей варіант уже застарів, бери новіший нижче 👇',
+        { show_alert: true },
+      );
+    }
 
     // Прибираємо кнопки одразу, щоб не відправити двічі
     await ctx.editMessageReplyMarkup(undefined);
@@ -397,7 +405,11 @@ export class BotUpdate implements OnModuleInit {
       await ctx.reply(
         "Запам'ятав ✅ Наступні відповіді писатиму ближче до твого стилю.",
       );
-      await ctx.reply(text, replyKeyboard(this.conversation.canSend(session)));
+      const sent = await ctx.reply(
+        text,
+        replyKeyboard(this.conversation.canSend(session)),
+      );
+      session.draftMessageId = sent.message_id;
       return;
     }
 
@@ -423,7 +435,7 @@ export class BotUpdate implements OnModuleInit {
     }
 
     // Вона відповіла — отже, нашу останню чернетку він відправив
-    this.conversation.addHers(chatId, text, true);
+    this.conversation.addHers(chatId, text, false);
   }
 
   private async showHelp(ctx: Context) {

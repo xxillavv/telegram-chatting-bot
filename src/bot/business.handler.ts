@@ -114,8 +114,8 @@ export class BusinessHandler implements OnModuleInit {
       return;
     }
 
-    await this.bot.telegram.sendMessage(owner, `💬 ${name}: ${text}`);
-    this.conversation.addHers(owner, text, false);
+    // Сповіщення прийде одне на всю пачку, коли вона допише
+    this.conversation.addHers(owner, text, true);
   }
 
   private async extractText(

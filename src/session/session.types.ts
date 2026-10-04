@@ -35,6 +35,8 @@ export interface Session {
   stats: ConversationStats;
   // Останній згенерований варіант, ще не підтверджений
   draft?: string;
+  // Повідомлення бота з цією чернеткою — щоб позначити його застарілим
+  draftMessageId?: number;
   awaiting?: 'tone' | 'about' | 'edit';
   // Текст відповіді, яку він зараз править
   editTarget?: string;

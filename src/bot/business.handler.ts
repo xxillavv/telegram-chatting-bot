@@ -11,7 +11,7 @@ import {
 } from './business.types';
 import { isAllowed } from './access';
 import { ConversationService } from './conversation.service';
-import { describeNonText, extractAudio } from './media';
+import { describeNonText, extractAudio, extractImage } from './media';
 import type { Message } from 'telegraf/types';
 
 type BusinessUpdate = {
@@ -154,6 +154,20 @@ export class BusinessHandler implements OnModuleInit {
     this.conversation.addHers(owner, text, true, meta);
   }
 
+  // Не вдалось описати — не страшно, буде просто «[фото]»
+  private async describeImage(
+    message: BusinessMessage,
+  ): Promise<string | undefined> {
+    const image = extractImage(message);
+    if (!image) return undefined;
+    try {
+      return await this.conversation.describeImage(image);
+    } catch (error) {
+      console.error('Не вдалося описати картинку', error);
+      return undefined;
+    }
+  }
+
   private lineMeta(message: BusinessMessage): LineMeta {
     const { reply_to_message: replied, quote } = message as ReplyInfo;
     let replyTo: string | undefined = quote?.text;
@@ -215,7 +229,8 @@ export class BusinessHandler implements OnModuleInit {
       }
     }
 
-    const kind = describeNonText(message);
+    const kind =
+      (await this.describeImage(message)) ?? describeNonText(message);
     if (kind) return caption ? `${kind} ${caption}` : kind;
     return caption;
   }

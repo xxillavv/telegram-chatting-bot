@@ -3,6 +3,7 @@ import { InjectBot } from 'nestjs-telegraf';
 import { Telegraf } from 'telegraf';
 import { AiService } from '../ai/ai.service';
 import { SpeechService } from '../ai/speech.service';
+import { VisionService } from '../ai/vision.service';
 import { SessionService } from '../session/session.service';
 import { LineMeta, Session } from '../session/session.types';
 import {
@@ -14,10 +15,21 @@ import {
 import { AUTO_SEND_QUIET_SECONDS, AUTO_SEND_SECONDS } from './auto-send';
 import { autoSendKeyboard, replyKeyboard } from './bot.keyboards';
 import { canSendTo } from './business.types';
-import { AudioMedia } from './media';
+import { AudioMedia, ImageMedia } from './media';
 
 // Telegram не віддає ботам файли, більші за 20 МБ
 const MAX_AUDIO_BYTES = 20 * 1024 * 1024;
+// Groq приймає картинки до 4 МБ у base64
+const MAX_IMAGE_BYTES = 3 * 1024 * 1024;
+// Скільки описів стікерів і фото пам'ятати — популярні стікери приходять знову і знову
+const MAX_IMAGE_CACHE = 500;
+
+function imageMime(data: Buffer): string {
+  if (data.subarray(8, 12).toString('ascii') === 'WEBP') return 'image/webp';
+  if (data[0] === 0x89 && data[1] === 0x50) return 'image/png';
+  return 'image/jpeg';
+}
+
 // Факти про неї оновлюємо раз на стільки нових повідомлень — не на кожне, щоб не палити ліміти
 const FACTS_EVERY = 10;
 // Трохи старіших рядків для контексту до нових
@@ -46,7 +58,11 @@ export class ConversationService {
     private readonly sessions: SessionService,
     private readonly ai: AiService,
     private readonly speech: SpeechService,
+    private readonly vision: VisionService,
   ) {}
+
+  // Описи вже побачених картинок: file_unique_id → опис
+  private readonly imageCache = new Map<string, string>();
 
   // Таймери автовідправки по чатах
   private readonly autoTimers = new Map<number, NodeJS.Timeout>();
@@ -75,6 +91,31 @@ export class ConversationService {
     if (!response.ok) throw new Error(`Telegram file: ${response.status}`);
     const audio = Buffer.from(await response.arrayBuffer());
     return this.speech.transcribe(audio, media.fileName);
+  }
+
+  // Фото чи стікер → текст для моделі: «[фото: кіт спить на дивані]»
+  async describeImage(media: ImageMedia): Promise<string> {
+    let description = this.imageCache.get(media.uniqueId);
+    if (!description) {
+      if (media.size && media.size > MAX_IMAGE_BYTES) {
+        throw new Error('Картинка завелика');
+      }
+      const url = await this.bot.telegram.getFileLink(media.fileId);
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`Telegram file: ${response.status}`);
+      const image = Buffer.from(await response.arrayBuffer());
+      description = await this.vision.describe(
+        image,
+        imageMime(image),
+        media.label,
+      );
+      if (this.imageCache.size >= MAX_IMAGE_CACHE) {
+        const [oldest] = this.imageCache.keys();
+        if (oldest !== undefined) this.imageCache.delete(oldest);
+      }
+      this.imageCache.set(media.uniqueId, description);
+    }
+    return `[${media.label}: ${description}]`;
   }
 
   // Його власне повідомлення — справжнє, тож заодно вчимося на ньому стилю

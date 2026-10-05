@@ -33,7 +33,7 @@ import {
 } from './bot.keyboards';
 import { AUTO_SEND_SECONDS } from './auto-send';
 import { ConversationService } from './conversation.service';
-import { extractAudio } from './media';
+import { describeNonText, extractAudio, extractImage } from './media';
 
 type ForwardOrigin = Message.TextMessage['forward_origin'];
 
@@ -496,6 +496,36 @@ export class BotUpdate implements OnModuleInit {
 
     await ctx.reply(`🎤 ${text}`);
     const origin = (ctx.message as Message.VoiceMessage).forward_origin;
+    await this.handleIncoming(ctx, text, origin);
+  }
+
+  // Переслані фото, стікери, гіфки — описуємо vision-моделлю і далі як текст
+  @On(['photo', 'sticker', 'animation', 'video'])
+  async onImage(@Ctx() ctx: Context) {
+    const message = ctx.message;
+    if (!message) return;
+    if (this.sessions.get(ctx.chat!.id).awaiting) {
+      await ctx.reply('Зараз чекаю на текст 🙏 Або натисни «Скасувати».');
+      return;
+    }
+
+    let kind: string | undefined;
+    const image = extractImage(message);
+    if (image) {
+      await ctx.sendChatAction('typing');
+      try {
+        kind = await this.conversation.describeImage(image);
+      } catch (error) {
+        console.error('Не вдалося описати картинку', error);
+      }
+    }
+    kind ??= describeNonText(message);
+    if (!kind) return;
+
+    const caption = 'caption' in message ? message.caption : undefined;
+    const text = caption ? `${kind} ${caption}` : kind;
+    await ctx.reply(`🖼 ${text}`);
+    const origin = (message as Message.PhotoMessage).forward_origin;
     await this.handleIncoming(ctx, text, origin);
   }
 

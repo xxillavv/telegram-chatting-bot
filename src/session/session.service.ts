@@ -1,4 +1,12 @@
-import { Injectable } from '@nestjs/common';
+import {
+  BeforeApplicationShutdown,
+  Inject,
+  Injectable,
+  Logger,
+  OnModuleInit,
+} from '@nestjs/common';
+import { Collection, Db } from 'mongodb';
+import { MONGO_DB } from '../database/database.module';
 import { DEFAULT_TONE } from '../tones/tones';
 import {
   ChatLine,
@@ -9,6 +17,10 @@ import {
 
 const MAX_HISTORY = 30;
 const MAX_STYLE_EDITS = 10;
+// Як часто зміни сесій скидаються в базу
+const FLUSH_INTERVAL_MS = 2000;
+
+type SessionDoc = Session & { _id: number };
 
 function emptyStats(): ConversationStats {
   return {
@@ -17,10 +29,70 @@ function emptyStats(): ConversationStats {
   };
 }
 
-// Зберігається в пам'яті — після перезапуску бота все скидається
+// Сесії живуть у пам'яті (код змінює їх напряму), а в MongoDB
+// періодично записуються ті, що змінились, — щоб пережити перезапуск
 @Injectable()
-export class SessionService {
+export class SessionService implements OnModuleInit, BeforeApplicationShutdown {
+  private readonly logger = new Logger(SessionService.name);
   private readonly sessions = new Map<number, Session>();
+  // Останній записаний у базу стан кожної сесії
+  private readonly saved = new Map<number, string>();
+  private readonly collection: Collection<SessionDoc>;
+  private timer?: NodeJS.Timeout;
+  private flushing?: Promise<void>;
+
+  constructor(@Inject(MONGO_DB) db: Db) {
+    this.collection = db.collection<SessionDoc>('sessions');
+  }
+
+  async onModuleInit() {
+    const docs = await this.collection.find().toArray();
+    for (const { _id, ...session } of docs) {
+      this.sessions.set(_id, session);
+      this.saved.set(_id, JSON.stringify(session));
+    }
+    this.logger.log(`Завантажено сесій з бази: ${docs.length}`);
+    this.timer = setInterval(() => void this.flush(), FLUSH_INTERVAL_MS);
+  }
+
+  async beforeApplicationShutdown() {
+    clearInterval(this.timer);
+    await this.flush();
+  }
+
+  private flush(): Promise<void> {
+    // Не запускаємо другий запис, поки йде попередній
+    this.flushing ??= this.writeChanged().finally(() => {
+      this.flushing = undefined;
+    });
+    return this.flushing;
+  }
+
+  private async writeChanged() {
+    const changed: [number, string, Session][] = [];
+    for (const [chatId, session] of this.sessions) {
+      const json = JSON.stringify(session);
+      if (this.saved.get(chatId) !== json)
+        changed.push([chatId, json, session]);
+    }
+    if (!changed.length) return;
+
+    try {
+      await this.collection.bulkWrite(
+        changed.map(([chatId, json]) => ({
+          replaceOne: {
+            filter: { _id: chatId },
+            // Копія через JSON — щоб не записати undefined-поля і стан, змінений під час запису
+            replacement: { _id: chatId, ...(JSON.parse(json) as Session) },
+            upsert: true,
+          },
+        })),
+      );
+      for (const [chatId, json] of changed) this.saved.set(chatId, json);
+    } catch (err) {
+      this.logger.error('Не вдалося зберегти сесії в базу', err);
+    }
+  }
 
   get(chatId: number): Session {
     let session = this.sessions.get(chatId);

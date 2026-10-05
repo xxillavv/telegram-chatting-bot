@@ -5,8 +5,13 @@ import { AiService } from '../ai/ai.service';
 import { SpeechService } from '../ai/speech.service';
 import { SessionService } from '../session/session.service';
 import { Session } from '../session/session.types';
-import { FORWARD_DELAY_MS, liveDelay, MAX_BATCH_WAIT_MS } from './batching';
-import { AUTO_SEND_SECONDS } from './auto-send';
+import {
+  AUTO_BATCH_FACTOR,
+  FORWARD_DELAY_MS,
+  liveDelay,
+  MAX_BATCH_WAIT_MS,
+} from './batching';
+import { AUTO_SEND_QUIET_SECONDS, AUTO_SEND_SECONDS } from './auto-send';
 import { autoSendKeyboard, replyKeyboard } from './bot.keyboards';
 import { canSendTo } from './business.types';
 import { AudioMedia } from './media';
@@ -45,6 +50,10 @@ export class ConversationService {
 
   // Таймери автовідправки по чатах
   private readonly autoTimers = new Map<number, NodeJS.Timeout>();
+  // Коли вона писала востаннє — автовідправка чекає тиші
+  private readonly lastHerAt = new Map<number, number>();
+  // Коли з'явилась поточна чернетка — щоб відрізнити її відповідь від продовження думки
+  private readonly draftAt = new Map<number, number>();
   // Чати, для яких зараз оновлюються факти
   private readonly factsInProgress = new Set<number>();
 
@@ -82,11 +91,18 @@ export class ConversationService {
   }
 
   // live: повідомлення з підключеного чату (Telegram Business), де ми бачимо все самі.
-  // При пересиланні не бачимо, що він відправив, тож вважаємо, що нашу чернетку.
-  addHers(chatId: number, text: string, live: boolean) {
+  // При пересиланні не бачимо, що він відправив, тож вважаємо, що нашу чернетку, —
+  // якщо тільки її повідомлення не написане раніше за чернетку (writtenAt — дата оригіналу).
+  addHers(chatId: number, text: string, live: boolean, writtenAt?: number) {
     const session = this.sessions.get(chatId);
+    this.lastHerAt.set(chatId, Date.now());
     if (session.draft) {
-      if (live) void this.markDraftOutdated(chatId);
+      const continuation =
+        live ||
+        (writtenAt !== undefined &&
+          writtenAt <= (this.draftAt.get(chatId) ?? 0));
+      // Вона дописує думку — стара чернетка вже не про те, нова прийде на все разом
+      if (continuation) void this.deleteDraftMessage(chatId);
       else this.addMyLines(chatId, session.draft);
     }
     session.draft = undefined;
@@ -104,9 +120,14 @@ export class ConversationService {
     clearTimeout(batch?.timer);
     const startedAt = batch?.startedAt ?? now;
 
-    let delay = live ? liveDelay(text) : FORWARD_DELAY_MS;
-    if (live)
-      delay = Math.min(delay, Math.max(0, startedAt + MAX_BATCH_WAIT_MS - now));
+    let delay = FORWARD_DELAY_MS;
+    if (live) {
+      const session = this.sessions.get(chatId);
+      const factor =
+        session.autoSend && this.canSend(session) ? AUTO_BATCH_FACTOR : 1;
+      const deadline = startedAt + MAX_BATCH_WAIT_MS * factor;
+      delay = Math.min(liveDelay(text) * factor, Math.max(0, deadline - now));
+    }
 
     const timer = setTimeout(() => void this.flushBatch(chatId), delay);
     this.batches.set(chatId, {
@@ -139,18 +160,14 @@ export class ConversationService {
     return next;
   }
 
-  private async markDraftOutdated(chatId: number) {
-    const session = this.sessions.get(chatId);
-    if (!session.draftMessageId || !session.draft) return;
+  // Щоб у чаті не копились застарілі варіанти — лишається один, актуальний
+  private async deleteDraftMessage(chatId: number) {
+    const { draftMessageId } = this.sessions.get(chatId);
+    if (!draftMessageId) return;
     try {
-      await this.bot.telegram.editMessageText(
-        chatId,
-        session.draftMessageId,
-        undefined,
-        `⏳ застаріло, вона дописала\n\n${session.draft}`,
-      );
+      await this.bot.telegram.deleteMessage(chatId, draftMessageId);
     } catch {
-      // Повідомлення могли видалити — не страшно
+      // Повідомлення могли вже видалити — не страшно
     }
   }
 
@@ -177,14 +194,19 @@ export class ConversationService {
       // Поки модель думала, вона дописала — цей варіант уже не про те
       if (this.generations.get(chatId) !== generation) return;
       session.draft = reply;
+      this.draftAt.set(chatId, Date.now());
       const auto = Boolean(session.autoSend) && this.canSend(session);
+      const autoDelay = this.autoSendDelay(chatId);
       const sent = await this.bot.telegram.sendMessage(
         chatId,
         reply,
-        auto ? autoSendKeyboard : replyKeyboard(this.canSend(session)),
+        auto
+          ? autoSendKeyboard(Math.round(autoDelay / 1000))
+          : replyKeyboard(this.canSend(session)),
       );
       session.draftMessageId = sent.message_id;
-      if (auto) this.scheduleAutoSend(chatId, reply, sent.message_id);
+      if (auto)
+        this.scheduleAutoSend(chatId, reply, sent.message_id, autoDelay);
     } catch (error) {
       console.error(error);
       await this.bot.telegram.sendMessage(
@@ -216,8 +238,20 @@ export class ConversationService {
     }
   }
 
+  // Не менше вікна на «Стоп» і не раніше, ніж вона помовчить
+  private autoSendDelay(chatId: number): number {
+    const quietUntil =
+      (this.lastHerAt.get(chatId) ?? 0) + AUTO_SEND_QUIET_SECONDS * 1000;
+    return Math.max(AUTO_SEND_SECONDS * 1000, quietUntil - Date.now());
+  }
+
   // Якщо за цей час він не натиснув «Стоп», не правив і вона не дописала — відправляємо самі
-  private scheduleAutoSend(chatId: number, text: string, messageId: number) {
+  private scheduleAutoSend(
+    chatId: number,
+    text: string,
+    messageId: number,
+    delay: number,
+  ) {
     this.cancelAutoSend(chatId);
     const timer = setTimeout(() => {
       this.autoTimers.delete(chatId);
@@ -240,7 +274,7 @@ export class ConversationService {
           );
         }
       })();
-    }, AUTO_SEND_SECONDS * 1000);
+    }, delay);
     this.autoTimers.set(chatId, timer);
   }
 

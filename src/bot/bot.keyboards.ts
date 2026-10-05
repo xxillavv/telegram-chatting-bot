@@ -4,7 +4,6 @@ import { Session } from '../session/session.types';
 import { TONES } from '../tones/tones';
 import { MENU } from './bot.constants';
 import { canSendTo } from './business.types';
-import { AUTO_SEND_SECONDS } from './auto-send';
 
 type InlineKeyboard = Markup.Markup<InlineKeyboardMarkup>;
 
@@ -42,18 +41,20 @@ export function questionsKeyboard(count: number): InlineKeyboard {
 }
 
 // Варіант, який піде сам, якщо не зупинити
-export const autoSendKeyboard: InlineKeyboard = Markup.inlineKeyboard([
-  [
-    Markup.button.callback(
-      `⏸ Стоп (піде сам через ${AUTO_SEND_SECONDS} с)`,
-      'auto_stop',
-    ),
-  ],
-  [
-    Markup.button.callback('🚀 Зараз', 'send_reply'),
-    Markup.button.callback('✏️ Підправити', 'edit_reply'),
-  ],
-]);
+export function autoSendKeyboard(seconds: number): InlineKeyboard {
+  return Markup.inlineKeyboard([
+    [
+      Markup.button.callback(
+        `⏸ Стоп (піде сам через ${seconds} с)`,
+        'auto_stop',
+      ),
+    ],
+    [
+      Markup.button.callback('🚀 Зараз', 'send_reply'),
+      Markup.button.callback('✏️ Підправити', 'edit_reply'),
+    ],
+  ]);
+}
 
 function autoSendButton(session: Session) {
   return Markup.button.callback(

@@ -15,7 +15,8 @@ import {
   StyleEdit,
 } from './session.types';
 
-const MAX_HISTORY = 30;
+// Скільки останніх повідомлень бачить модель — решту пам'ятають факти
+const MAX_HISTORY = 50;
 const MAX_STYLE_EDITS = 10;
 // Як часто зміни сесій скидаються в базу
 const FLUSH_INTERVAL_MS = 2000;

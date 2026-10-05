@@ -9,6 +9,8 @@ const NEUTRAL_DELAY_MS = 5000;
 const UNFINISHED_DELAY_MS = 9000;
 // Навіть якщо вона пише без кінця, не мовчимо довше за це від першого повідомлення
 export const MAX_BATCH_WAIT_MS = 25000;
+// З автовідправкою відповідь на півдумки піде їй, а не лише тобі, — чекаємо довше
+export const AUTO_BATCH_FACTOR = 1.6;
 
 // Слова, після яких зазвичай буде продовження
 const CONTINUATION =

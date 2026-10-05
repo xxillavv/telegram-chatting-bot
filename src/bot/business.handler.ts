@@ -9,7 +9,6 @@ import {
   BusinessMessagesDeleted,
   canReply,
 } from './business.types';
-import { isAllowed } from './access';
 import { ConversationService } from './conversation.service';
 import { describeNonText, extractAudio, extractImage } from './media';
 import type { Message } from 'telegraf/types';
@@ -70,13 +69,6 @@ export class BusinessHandler implements OnModuleInit {
   }
 
   private async onConnection(connection: BusinessConnection) {
-    // Чужий акаунт підключив нашого бота — ігноруємо
-    if (!isAllowed(connection.user.id)) {
-      console.warn(
-        `Business-підключення від чужого акаунта: ${connection.user.id}`,
-      );
-      return;
-    }
     const session = this.applyConnection(connection);
     const owner = connection.user_chat_id;
 
@@ -107,7 +99,6 @@ export class BusinessHandler implements OnModuleInit {
       'getBusinessConnection' as never,
       { business_connection_id: connectionId } as never,
     )) as BusinessConnection;
-    if (!isAllowed(connection.user.id)) return undefined;
     return this.applyConnection(connection);
   }
 

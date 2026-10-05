@@ -46,7 +46,6 @@ With Telegram Business, the bot sees the chat directly and can reply on your beh
 | ⏱️ | **Auto-send** | The reply goes out by itself after 10 s unless you hit "Stop", with a "typing…" indicator and pauses between messages |
 | 💬 | **Conversation starters** | Generates topics to break an awkward silence |
 | 📊 | **Stats** | A "who texts more" chart plus an AI estimate of her interest, with positive and warning signals and a piece of advice |
-| 🔒 | **Private** | Only Telegram IDs from an allowlist can use it |
 | 🆓 | **Free** | Free-tier LLMs only (Groq); the provider is swappable via `.env` |
 
 ---
@@ -96,15 +95,7 @@ docker compose up -d      # MongoDB on 127.0.0.1:27017
 pnpm start:dev
 ```
 
-### First run
-
-By default the bot is **closed to everyone**. Send it `/start` and it replies with your Telegram ID. Add that ID to `.env`:
-
-```env
-ALLOWED_USER_IDS=123456789
-```
-
-Then restart the bot. Done 🎉
+Open your bot in Telegram and send `/start`. Done 🎉
 
 ---
 
@@ -119,7 +110,6 @@ Then restart the bot. Done 🎉
 | `STT_MODEL` | `whisper-large-v3` | Speech-to-text model |
 | `STT_LANGUAGE` | `uk` | Voice message language (ISO-639-1); empty means auto-detect |
 | `VISION_MODEL` | `qwen/qwen3.8-27b` | Model that describes photos and stickers |
-| `ALLOWED_USER_IDS` | — | Comma-separated Telegram IDs allowed to use the bot |
 | `MONGO_URL` | `mongodb://127.0.0.1:27017` | MongoDB connection string |
 | `MONGO_DB` | `telegram-chatting-bot` | Database name |
 | `BOT_TIMEZONE` | `Europe/Kyiv` | Time zone the model sees message times in |
@@ -201,8 +191,7 @@ src/
 │   ├── business.handler.ts     # Telegram Business: her chat, edits, deletions
 │   ├── conversation.service.ts # drafts, auto-send, "typing…"
 │   ├── batching.ts             # how long to wait for her to finish
-│   ├── auto-send.ts            # auto-send timings
-│   └── access.ts               # Telegram ID allowlist
+│   └── auto-send.ts            # auto-send timings
 ├── session/                    # sessions stored in MongoDB
 ├── stats/                      # chart (canvas) and stats text
 ├── tones/                      # tone presets
@@ -239,6 +228,7 @@ docker compose up -d --build
 
 ## 🗺️ Roadmap
 
+- [x] Open to everyone: each chat has its own session, tone, memory and style
 - [x] Long-term memory: facts about her and about you
 - [x] Photos, stickers, GIFs and videos via a vision model
 - [x] "Typing…" and realistic pauses during auto-send

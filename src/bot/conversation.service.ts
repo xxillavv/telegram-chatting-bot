@@ -13,6 +13,10 @@ import { AudioMedia } from './media';
 
 // Telegram не віддає ботам файли, більші за 20 МБ
 const MAX_AUDIO_BYTES = 20 * 1024 * 1024;
+// Факти про неї оновлюємо раз на стільки нових повідомлень — не на кожне, щоб не палити ліміти
+const FACTS_EVERY = 10;
+// Трохи старіших рядків для контексту до нових
+const FACTS_CONTEXT_LINES = 4;
 
 // Спільна логіка розмови — для пересланих повідомлень і для підключеного чату (Telegram Business)
 function splitMessages(text: string): string[] {
@@ -41,6 +45,8 @@ export class ConversationService {
 
   // Таймери автовідправки по чатах
   private readonly autoTimers = new Map<number, NodeJS.Timeout>();
+  // Чати, для яких зараз оновлюються факти
+  private readonly factsInProgress = new Set<number>();
 
   canSend(session: Session): boolean {
     return canSendTo(session);
@@ -163,6 +169,7 @@ export class ConversationService {
       return;
     }
 
+    void this.refreshFacts(chatId);
     const generation = this.bumpGeneration(chatId);
     await this.bot.telegram.sendChatAction(chatId, 'typing');
     try {
@@ -184,6 +191,28 @@ export class ConversationService {
         chatId,
         'Не вдалося згенерувати відповідь, спробуй ще раз 🙏',
       );
+    }
+  }
+
+  // У фоні: відповідь не чекає, нові факти підхопить уже наступна
+  private async refreshFacts(chatId: number) {
+    const session = this.sessions.get(chatId);
+    const pending = this.sessions.factsPending(session);
+    if (pending < FACTS_EVERY || this.factsInProgress.has(chatId)) return;
+
+    this.factsInProgress.add(chatId);
+    try {
+      const lines = session.history.slice(-(pending + FACTS_CONTEXT_LINES));
+      session.facts = await this.ai.extractFacts(session, lines);
+      // Поки модель думала, могли прийти нові — їх розберемо наступного разу
+      session.factsPending = Math.max(
+        0,
+        this.sessions.factsPending(session) - pending,
+      );
+    } catch (error) {
+      console.error('Не вдалося оновити факти', error);
+    } finally {
+      this.factsInProgress.delete(chatId);
     }
   }
 

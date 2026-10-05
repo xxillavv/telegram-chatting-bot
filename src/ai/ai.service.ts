@@ -11,6 +11,7 @@ import {
 import { LLM_CLIENT } from './llm.client';
 import { InterestAnalysis } from './interest.types';
 import { INTEREST_PROMPT } from './prompts/interest.prompt';
+import { FACTS_PROMPT, MAX_FACTS } from './prompts/facts.prompt';
 import {
   MAX_REPLY_MESSAGES,
   MY_STYLE,
@@ -73,6 +74,10 @@ function formatLines(lines: Session['history']): string {
     .join('\n');
 }
 
+function formatFacts(facts: string[]): string {
+  return facts.map((fact) => `- ${fact}`).join('\n');
+}
+
 @Injectable()
 export class AiService {
   private readonly model = process.env.LLM_MODEL || 'openai/gpt-oss-120b';
@@ -115,25 +120,16 @@ export class AiService {
       formatStats(session.stats),
       `Переписка (останні повідомлення внизу):\n${formatLines(session.history)}`,
     ];
+    if (session.facts?.length) {
+      parts.unshift(`Що відомо про неї:\n${formatFacts(session.facts)}`);
+    }
     if (session.about) parts.unshift(`Контекст про неї: ${session.about}`);
 
-    const completion = await this.client.chat.completions.create({
-      model: this.model,
-      messages: [
-        { role: 'system', content: INTEREST_PROMPT },
-        { role: 'user', content: parts.join('\n\n') },
-      ],
-      temperature: 0.3,
-      max_completion_tokens: 3000,
-      response_format: { type: 'json_object' },
-      ...(this.model.startsWith('openai/gpt-oss') && {
-        reasoning_effort: 'medium' as const,
-      }),
-    });
-
-    const raw = completion.choices[0]?.message?.content ?? '';
-    const json = raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1);
-    const data = JSON.parse(json) as Partial<InterestAnalysis>;
+    const data = await this.completeJson<Partial<InterestAnalysis>>(
+      INTEREST_PROMPT,
+      parts.join('\n\n'),
+      'medium',
+    );
     const list = (value: unknown) =>
       Array.isArray(value)
         ? value.filter((v): v is string => typeof v === 'string').slice(0, 3)
@@ -149,6 +145,59 @@ export class AiService {
       negative: list(data.negative).map(stripDashes),
       advice: stripDashes(String(data.advice ?? '')),
     };
+  }
+
+  // Оновлений список фактів про неї з урахуванням свіжих повідомлень
+  async extractFacts(
+    session: Session,
+    lines: Session['history'],
+  ): Promise<string[]> {
+    const known = session.facts?.length
+      ? formatFacts(session.facts)
+      : 'Поки нічого.';
+    const parts = [
+      `Відомі факти про неї:\n${known}`,
+      `Свіжа переписка:\n${formatLines(lines)}`,
+    ];
+    if (session.about) {
+      parts.unshift(`Що він сам розповів про неї: ${session.about}`);
+    }
+
+    const data = await this.completeJson<{ facts?: unknown }>(
+      FACTS_PROMPT,
+      parts.join('\n\n'),
+      'low',
+    );
+    if (!Array.isArray(data.facts)) throw new Error('LLM не повернула фактів');
+    return data.facts
+      .filter((f): f is string => typeof f === 'string')
+      .map((f) => stripDashes(f.trim()))
+      .filter(Boolean)
+      .slice(0, MAX_FACTS);
+  }
+
+  private async completeJson<T>(
+    system: string,
+    user: string,
+    effort: 'low' | 'medium',
+  ): Promise<T> {
+    const completion = await this.client.chat.completions.create({
+      model: this.model,
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: user },
+      ],
+      temperature: 0.3,
+      max_completion_tokens: 3000,
+      response_format: { type: 'json_object' },
+      ...(this.model.startsWith('openai/gpt-oss') && {
+        reasoning_effort: effort,
+      }),
+    });
+
+    const raw = completion.choices[0]?.message?.content ?? '';
+    const json = raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1);
+    return JSON.parse(json) as T;
   }
 
   private async complete(
@@ -240,6 +289,8 @@ export class AiService {
     const context = [
       session.linked && `Її ім'я в Telegram: ${session.linked.name}`,
       session.about,
+      session.facts?.length &&
+        `Що я про неї знаю з переписки (використовуй природно, коли до речі, не перелічуй і не перепитуй):\n${formatFacts(session.facts)}`,
     ].filter(Boolean);
     if (context.length) {
       parts.push(

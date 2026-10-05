@@ -57,4 +57,8 @@ export interface Session {
   seenChats: Record<number, string>;
   // Не скидається разом з історією — стиль один на весь чат
   styleEdits: StyleEdit[];
+  // Довга пам'ять: факти про неї, які LLM сама витягує з переписки
+  facts?: string[];
+  // Скільки повідомлень додалось після останнього оновлення фактів
+  factsPending?: number;
 }

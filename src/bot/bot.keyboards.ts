@@ -119,11 +119,18 @@ export function settingsKeyboard(session: Session): InlineKeyboard {
       Markup.button.callback('🗑 Видалити контекст', 'clear_about'),
     ],
     ...(canSendTo(session) ? [[autoSendButton(session)]] : []),
+    ...(session.facts?.length
+      ? [[Markup.button.callback('🧠 Що я про неї знаю', 'show_facts')]]
+      : []),
     ...(session.styleEdits.length
       ? [[Markup.button.callback('🧽 Скинути мій стиль', 'clear_style')]]
       : []),
   ]);
 }
+
+export const factsKeyboard: InlineKeyboard = Markup.inlineKeyboard([
+  Markup.button.callback('🗑 Забути все', 'clear_facts'),
+]);
 
 export const cancelKeyboard: InlineKeyboard = Markup.inlineKeyboard([
   Markup.button.callback('❌ Скасувати', 'cancel_input'),

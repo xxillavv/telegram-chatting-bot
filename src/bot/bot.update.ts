@@ -20,6 +20,7 @@ import { COMMANDS, HELP, MENU } from './bot.constants';
 import {
   cancelKeyboard,
   chatKeyboard,
+  factsKeyboard,
   mainMenu,
   questionKeyboard,
   questionsKeyboard,
@@ -180,6 +181,31 @@ export class BotUpdate implements OnModuleInit {
     );
   }
 
+  @Action('show_facts')
+  async showFacts(@Ctx() ctx: Context) {
+    await ctx.answerCbQuery();
+    const { facts } = this.sessions.get(ctx.chat!.id);
+    if (!facts?.length) {
+      await ctx.reply(
+        "Поки нічого не запам'ятав. Факти з'являються з переписки.",
+      );
+      return;
+    }
+    await ctx.reply(
+      `🧠 Що я про неї знаю з переписки:\n\n${facts.map((f) => `• ${f}`).join('\n')}`,
+      factsKeyboard,
+    );
+  }
+
+  @Action('clear_facts')
+  async clearFacts(@Ctx() ctx: Context) {
+    const session = this.sessions.get(ctx.chat!.id);
+    session.facts = [];
+    session.factsPending = 0;
+    await ctx.answerCbQuery('Забув');
+    await ctx.editMessageText('🧠 Факти про неї видалено.');
+  }
+
   @Action('cancel_input')
   async cancelInput(@Ctx() ctx: Context) {
     this.clearInput(ctx);
@@ -235,7 +261,7 @@ export class BotUpdate implements OnModuleInit {
     this.sessions.resetHistory(ctx.chat!.id);
     await ctx.answerCbQuery();
     await ctx.editMessageText(
-      'Історію переписки очищено 🧹 Тон і контекст залишились.',
+      'Історію переписки і факти з неї очищено 🧹 Тон і контекст залишились.',
     );
   }
 
@@ -606,7 +632,7 @@ export class BotUpdate implements OnModuleInit {
       return;
     }
     await ctx.reply(
-      `Очистити історію (${history.length} повідомлень)? Тон і контекст залишаться.`,
+      `Очистити історію (${history.length} повідомлень) і факти про неї з переписки? Тон і контекст залишаться.`,
       resetConfirmKeyboard,
     );
   }
@@ -640,7 +666,7 @@ export class BotUpdate implements OnModuleInit {
     const tone = session.customTone
       ? `✍️ ${session.customTone}`
       : (findTone(session.toneKey) ?? DEFAULT_TONE).label;
-    return `⚙️ Налаштування\n\nТон: ${tone}\nЧат: ${session.linked ? `🔗 ${session.linked.name}` : 'не підключено'}\nАвтовідправка: ${session.autoSend ? 'увімк' : 'вимк'}\nЕмодзі: ${session.emoji ? 'увімк' : 'вимк'}\nКонтекст: ${session.about ?? '—'}\nПравок мого стилю: ${session.styleEdits.length}\nПовідомлень в історії: ${session.history.length}`;
+    return `⚙️ Налаштування\n\nТон: ${tone}\nЧат: ${session.linked ? `🔗 ${session.linked.name}` : 'не підключено'}\nАвтовідправка: ${session.autoSend ? 'увімк' : 'вимк'}\nЕмодзі: ${session.emoji ? 'увімк' : 'вимк'}\nКонтекст: ${session.about ?? '—'}\nФактів про неї: ${session.facts?.length ?? 0}\nПравок мого стилю: ${session.styleEdits.length}\nПовідомлень в історії: ${session.history.length}`;
   }
 
   // Якщо бот чекав на введення тону чи контексту, а користувач пішов у меню — забуваємо про це

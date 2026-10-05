@@ -120,6 +120,7 @@ export class SessionService implements OnModuleInit, BeforeApplicationShutdown {
   addLine(chatId: number, line: ChatLine) {
     const session = this.get(chatId);
     session.history.push(line);
+    session.factsPending = this.factsPending(session) + 1;
 
     const side = session.stats[line.from];
     side.messages++;
@@ -140,10 +141,18 @@ export class SessionService implements OnModuleInit, BeforeApplicationShutdown {
     }
   }
 
+  // Для сесій, створених до появи пам'яті, — вся наявна історія ще не розібрана
+  factsPending(session: Session): number {
+    return session.factsPending ?? session.history.length;
+  }
+
   resetHistory(chatId: number) {
     const session = this.get(chatId);
     session.history = [];
     session.stats = emptyStats();
     session.draft = undefined;
+    // Факти взяті з цієї переписки — нова переписка, найчастіше, з іншою дівчиною
+    session.facts = [];
+    session.factsPending = 0;
   }
 }

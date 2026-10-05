@@ -1,2 +1,2 @@
 // Скільки секунд чекати, перш ніж відправити варіант самому — час, щоб встигнути натиснути «Стоп»
-export const AUTO_SEND_SECONDS = 15;
+export const AUTO_SEND_SECONDS = 10;

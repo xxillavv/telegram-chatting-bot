@@ -2,9 +2,9 @@
 
 # 💬 Telegram Chatting Bot
 
-**Особистий AI-помічник для переписки в Telegram.**
-Пересилаєш її повідомлення — отримуєш відповідь у потрібному тоні й у **твоєму** стилі письма.
-А з Telegram Business бот сам бачить чат і може відповідати від твого імені.
+**A personal AI texting assistant for Telegram.**
+Forward her messages and get a reply in the tone you pick, written in **your** own texting style.
+With Telegram Business, the bot sees the chat directly and can reply on your behalf.
 
 ![NestJS](https://img.shields.io/badge/NestJS-11-E0234E?logo=nestjs&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
@@ -16,227 +16,229 @@
 
 ---
 
-## Зміст
+## Table of contents
 
-- [Можливості](#-можливості)
-- [Як це працює](#-як-це-працює)
-- [Швидкий старт](#-швидкий-старт)
-- [Змінні середовища](#-змінні-середовища)
-- [Підключення через Telegram Business](#-підключення-через-telegram-business)
-- [Команди й меню](#-команди-й-меню)
-- [Тони](#-тони)
-- [Структура проекту](#-структура-проекту)
-- [Розробка](#-розробка)
+- [Features](#-features)
+- [How it works](#-how-it-works)
+- [Quick start](#-quick-start)
+- [Environment variables](#-environment-variables)
+- [Connecting via Telegram Business](#-connecting-via-telegram-business)
+- [Commands and menu](#-commands-and-menu)
+- [Tones](#-tones)
+- [Project structure](#-project-structure)
+- [Development](#-development)
 - [Roadmap](#-roadmap)
 
 ---
 
-## ✨ Можливості
+## ✨ Features
 
-| | Фіча | Що робить |
+| | Feature | What it does |
 |---|---|---|
-| 🎭 | **Тони** | 8 готових пресетів (флірт, дружній, романтичний, з гумором…) або власний опис тону |
-| ✍️ | **Твій стиль письма** | Відповіді короткими повідомленнями, з маленької літери, твоїми словечками. Бот вчиться на твоїх правках відповідей |
-| 🧠 | **Довга пам'ять** | LLM сама витягує факти про неї й про тебе з переписки та підкладає їх у промпт |
-| 🎤 | **Голосові й кружечки** | Розпізнаються через Whisper і обробляються як звичайний текст |
-| 🖼️ | **Фото, стікери, GIF, відео** | Vision-модель описує, що на них, і бот відповідає по суті |
-| 📦 | **Пачки повідомлень** | Кілька коротких повідомлень підряд — одна думка. Бот чекає, поки вона допише, і відповідає на все разом |
-| 🔗 | **Telegram Business** | Бот бачить її чат напряму, знає про редагування, видалення й цитати, відправляє відповідь кнопкою |
-| ⏱️ | **Автовідправка** | Відповідь іде сама через 10 с, якщо не натиснув «Стоп», — з імітацією «друкує…» і паузами між повідомленнями |
-| 💬 | **Питання для паузи** | Генерує теми, щоб розрядити незручне мовчання |
-| 📊 | **Статистика** | Графік «хто скільки пише» + AI-оцінка її зацікавленості з позитивними/тривожними сигналами й порадою |
-| 🔒 | **Приватність** | Доступ лише для Telegram ID з allowlist |
-| 🆓 | **Безкоштовно** | Тільки free-tier LLM (Groq); провайдер змінюється через `.env` |
+| 🎭 | **Tones** | 8 presets (flirty, friendly, romantic, funny…) or your own custom tone description |
+| ✍️ | **Your texting style** | Replies come as short messages, lowercase, with your pet phrases. The bot learns from your edits to its drafts |
+| 🧠 | **Long-term memory** | The LLM extracts facts about her and about you from the chat and feeds them into the prompt |
+| 🎤 | **Voice and video notes** | Transcribed with Whisper and handled like regular text |
+| 🖼️ | **Photos, stickers, GIFs, videos** | A vision model describes them so the bot can reply to what's actually there |
+| 📦 | **Message bursts** | Several short messages in a row are treated as one thought. The bot waits for her to finish and answers everything at once |
+| 🔗 | **Telegram Business** | Sees her chat directly, tracks edits, deletions and quotes, sends replies with one tap |
+| ⏱️ | **Auto-send** | The reply goes out by itself after 10 s unless you hit "Stop", with a "typing…" indicator and pauses between messages |
+| 💬 | **Conversation starters** | Generates topics to break an awkward silence |
+| 📊 | **Stats** | A "who texts more" chart plus an AI estimate of her interest, with positive and warning signals and a piece of advice |
+| 🔒 | **Private** | Only Telegram IDs from an allowlist can use it |
+| 🆓 | **Free** | Free-tier LLMs only (Groq); the provider is swappable via `.env` |
 
 ---
 
-## 🧩 Як це працює
+## 🧩 How it works
 
 ```mermaid
 flowchart LR
-    A[Її повідомлення<br/>текст / голос / фото] -->|пересилання<br/>або Business| B[Batching<br/>чекаємо, поки допише]
-    V[Whisper] -.голос.-> B
-    I[Vision] -.медіа.-> B
-    B --> C[Промпт:<br/>тон + твій стиль<br/>+ факти + історія]
+    A[Her message<br/>text / voice / media] -->|forward<br/>or Business| B[Batching<br/>wait until she's done]
+    V[Whisper] -.voice.-> B
+    I[Vision] -.media.-> B
+    B --> C[Prompt:<br/>tone + your style<br/>+ facts + history]
     C --> D[LLM · Groq]
-    D --> E[Чернетка відповіді]
-    E -->|✏️ правка| S[Навчання стилю]
+    D --> E[Draft reply]
+    E -->|✏️ edit| S[Style learning]
     E -->|🔄 / ✂️| D
-    E -->|📤 кнопка або таймер| F[Відправка в її чат<br/>з «друкує…»]
+    E -->|📤 button or timer| F[Sent to her chat<br/>with "typing…"]
 ```
 
-1. **Вхід.** Пересилаєш її повідомлення боту (або вони приходять самі через Telegram Business). Голосові розпізнаються, медіа описується vision-моделлю.
-2. **Батчинг.** Бот дивиться, як закінчується останнє повідомлення: кома, «і», «короче» — чекає довше; «?» чи «)» — відповідає швидше. Максимум — 25 с.
-3. **Генерація.** У промпт ідуть обраний тон, профіль твого стилю, твої минулі правки, факти про неї й про тебе, історія з часом повідомлень і цитатами.
-4. **Чернетка.** Під відповіддю кнопки: надіслати, перегенерувати, коротше, редагувати.
-5. **Відправка.** Від твого імені, з паузами «друкує…» пропорційно довжині кожного повідомлення.
+1. **Input.** You forward her messages to the bot, or they arrive on their own via Telegram Business. Voice messages are transcribed, and media is described by a vision model.
+2. **Batching.** The bot looks at how the last message ends. A trailing comma, "and" or "so" means it waits longer; "?" or ")" means it answers sooner. It never waits more than 25 s.
+3. **Generation.** The prompt combines the chosen tone, your style profile, your past edits, facts about her and you, and the chat history with timestamps and reply quotes.
+4. **Draft.** The reply comes with buttons to send, regenerate, shorten or edit it.
+5. **Sending.** It goes out on your behalf, with "typing…" pauses sized to each message's length.
 
 ---
 
-## 🚀 Швидкий старт
+## 🚀 Quick start
 
-### Вимоги
+### Requirements
 
-- **Node.js** 20+ і **pnpm**
-- **Docker** (для локальної MongoDB)
-- Токен бота від [@BotFather](https://t.me/BotFather)
-- Безкоштовний ключ [Groq](https://console.groq.com/keys)
+- **Node.js** 20+ and **pnpm**
+- **Docker** (for a local MongoDB)
+- A bot token from [@BotFather](https://t.me/BotFather)
+- A free [Groq](https://console.groq.com/keys) API key
 
-### Встановлення
+### Installation
 
 ```bash
 git clone git@github.com:xxillavv/telegram-chatting-bot.git
 cd telegram-chatting-bot
 
 pnpm install
-cp .env.example .env      # заповни TG_API_TOKEN і LLM_API_KEY
+cp .env.example .env      # fill in TG_API_TOKEN and LLM_API_KEY
 
-docker compose up -d      # MongoDB на 127.0.0.1:27017
+docker compose up -d      # MongoDB on 127.0.0.1:27017
 pnpm start:dev
 ```
 
-### Перший запуск
+### First run
 
-Бот за замовчуванням **закритий для всіх**. Напиши йому `/start` — він відповість твоїм Telegram ID. Додай його в `.env`:
+By default the bot is **closed to everyone**. Send it `/start` and it replies with your Telegram ID. Add that ID to `.env`:
 
 ```env
 ALLOWED_USER_IDS=123456789
 ```
 
-і перезапусти бота. Готово 🎉
+Then restart the bot. Done 🎉
 
 ---
 
-## ⚙️ Змінні середовища
+## ⚙️ Environment variables
 
-| Змінна | За замовчуванням | Опис |
+| Variable | Default | Description |
 |---|---|---|
-| `TG_API_TOKEN` | — | Токен бота від BotFather |
-| `LLM_API_KEY` | — | Ключ Groq (або іншого OpenAI-сумісного провайдера) |
-| `LLM_BASE_URL` | `https://api.groq.com/openai/v1` | Endpoint OpenAI-сумісного API |
-| `LLM_MODEL` | `openai/gpt-oss-120b` | Модель для відповідей |
-| `STT_MODEL` | `whisper-large-v3` | Модель розпізнавання голосу |
-| `STT_LANGUAGE` | `uk` | Мова голосових (ISO-639-1), порожньо — автовизначення |
-| `VISION_MODEL` | `qwen/qwen3.8-27b` | Модель для опису фото й стікерів |
-| `ALLOWED_USER_IDS` | — | Telegram ID через кому, яким дозволено користуватись ботом |
-| `MONGO_URL` | `mongodb://127.0.0.1:27017` | Підключення до MongoDB |
-| `MONGO_DB` | `telegram-chatting-bot` | Назва бази |
-| `BOT_TIMEZONE` | `Europe/Kyiv` | Часовий пояс, у якому модель бачить час повідомлень |
+| `TG_API_TOKEN` | — | Bot token from BotFather |
+| `LLM_API_KEY` | — | Groq key (or any other OpenAI-compatible provider) |
+| `LLM_BASE_URL` | `https://api.groq.com/openai/v1` | OpenAI-compatible API endpoint |
+| `LLM_MODEL` | `openai/gpt-oss-120b` | Model used for replies |
+| `STT_MODEL` | `whisper-large-v3` | Speech-to-text model |
+| `STT_LANGUAGE` | `uk` | Voice message language (ISO-639-1); empty means auto-detect |
+| `VISION_MODEL` | `qwen/qwen3.8-27b` | Model that describes photos and stickers |
+| `ALLOWED_USER_IDS` | — | Comma-separated Telegram IDs allowed to use the bot |
+| `MONGO_URL` | `mongodb://127.0.0.1:27017` | MongoDB connection string |
+| `MONGO_DB` | `telegram-chatting-bot` | Database name |
+| `BOT_TIMEZONE` | `Europe/Kyiv` | Time zone the model sees message times in |
 
 > [!TIP]
-> Провайдер легко змінити: будь-який OpenAI-сумісний API (OpenRouter `:free`-моделі, Gemini через OpenAI-endpoint тощо) підійде — достатньо поміняти `LLM_BASE_URL` і `LLM_MODEL`.
+> Switching providers is easy. Any OpenAI-compatible API works (OpenRouter `:free` models, Gemini through its OpenAI endpoint, etc.); just change `LLM_BASE_URL` and `LLM_MODEL`.
 
 > [!NOTE]
-> Безкоштовний Groq має ліміт ~8000 токенів на хвилину, тож бот тримає відповіді компактними.
+> Groq's free tier is limited to roughly 8,000 tokens per minute, so the bot keeps its requests compact.
 
 ---
 
-## 🔗 Підключення через Telegram Business
+## 🔗 Connecting via Telegram Business
 
-Без Business бот працює в режимі «пересилай мені повідомлення». З Business — бачить її чат сам і відповідає від твого імені.
+Without Business, the bot works in "forward me her messages" mode. With Business, it sees her chat on its own and replies as you.
 
-1. У [@BotFather](https://t.me/BotFather) → твій бот → **Bot Settings → Business Mode → Turn on**.
-2. У Telegram: **Налаштування → Telegram Business → Чат-боти** → вкажи свого бота, дай доступ до потрібних чатів і дозвіл відповідати.
-3. У боті натисни **🔗 Чат** (`/chat`) і вибери її чат або вкажи `@username`.
-4. За бажання увімкни **автовідправку** — відповідь піде сама через 10 с, якщо не натиснеш «Стоп», і лише коли вона вже 15 с мовчить.
+1. In [@BotFather](https://t.me/BotFather): your bot → **Bot Settings → Business Mode → Turn on**.
+2. In Telegram: **Settings → Telegram Business → Chatbots** → pick your bot, give it access to the chats you want and permission to reply.
+3. In the bot, tap **🔗 Чат** (`/chat`) and choose her chat or enter her `@username`.
+4. Optionally turn on **auto-send**: the reply goes out by itself after 10 s unless you tap "Stop", and only once she has been quiet for 15 s.
 
 > [!WARNING]
-> Telegram Business потребує Telegram Premium.
+> Telegram Business requires Telegram Premium.
 
 ---
 
-## 🕹️ Команди й меню
+## 🕹️ Commands and menu
 
-| Кнопка | Команда | Дія |
+The bot's interface is in Ukrainian. Menu buttons and their commands:
+
+| Button | Command | Action |
 |---|---|---|
-| 💬 Питання | `/questions` | Питання, щоб розрядити паузу |
-| 📊 Статистика | `/stats` | Хто скільки пише і наскільки вона зацікавлена |
-| 🎭 Тон | `/tone` | Обрати тон або описати власний |
-| 🔗 Чат | `/chat` | Підключити її чат через Business |
-| 👩 Про неї | `/about` | Ім'я, як познайомились, що їй подобається + збережені факти |
-| 😀 Емодзі | — | Увімкнути/вимкнути емодзі у відповідях |
-| ⚙️ Налаштування | `/settings` | Поточні налаштування, скидання стилю |
-| 🧹 Нова переписка | `/reset` | Очистити історію (стиль і факти про тебе лишаються) |
-| ❓ Допомога | `/help` | Як користуватись |
+| 💬 Питання | `/questions` | Conversation starters for an awkward pause |
+| 📊 Статистика | `/stats` | Who texts more and how interested she is |
+| 🎭 Тон | `/tone` | Pick a tone or describe your own |
+| 🔗 Чат | `/chat` | Connect her chat via Business |
+| 👩 Про неї | `/about` | Her name, how you met, what she likes, plus saved facts |
+| 😀 Емодзі | — | Toggle emoji in replies |
+| ⚙️ Налаштування | `/settings` | Current settings, reset learned style |
+| 🧹 Нова переписка | `/reset` | Clear the chat history (your style and facts about you are kept) |
+| ❓ Допомога | `/help` | How to use the bot |
 
-**Підказки:**
-- Текст, який ти пишеш боту сам, вважається її повідомленням. Щоб додати свою репліку — почни з `я:` або перешли своє повідомлення.
-- Можна пересилати кілька повідомлень одразу, голосові й кружечки теж.
-- Кнопка **✏️ Редагувати** під відповіддю — найкращий спосіб навчити бота писати як ти.
+**Tips:**
+- Text you type to the bot yourself is treated as her message. To add your own line, start it with `я:` or forward your own message.
+- You can forward several messages at once, including voice and video notes.
+- The **✏️ Edit** button under a reply is the best way to teach the bot to write like you.
 
 ---
 
-## 🎭 Тони
+## 🎭 Tones
 
-| Тон | Характер |
+| Tone | Character |
 |---|---|
-| 😏 Флірт | Легкий, грайливий, з інтригою |
-| 🔥 Пошлий | Сміливі двозначності, але збавляє оберти, якщо вона холодна |
-| 🤬 Агро | Дерзко й з матом — на ситуації, не на неї |
-| 🙂 Дружній | Тепло і невимушено, без підкатів |
-| ❤️ Романтичний | Ніжно і щиро, без листівкових штампів |
-| 😂 З гумором | Іронія, самоіронія, підхоплює її жарти |
-| 😎 Впевнений | Коротко, спокійно, сам пропонує плани |
-| 🤗 Турботливий | Підтримує, більше слухає, ніж говорить |
+| 😏 Flirty | Light, playful, keeps some intrigue |
+| 🔥 Spicy | Bold innuendo, but backs off if she's cold |
+| 🤬 Aggro | Cocky and full of swearing, aimed at situations, never at her |
+| 🙂 Friendly | Warm and casual, no pickup lines |
+| ❤️ Romantic | Tender and sincere, no greeting-card clichés |
+| 😂 Funny | Irony, self-irony, picks up on her jokes |
+| 😎 Confident | Short, calm, makes the plans himself |
+| 🤗 Caring | Supportive, listens more than talks |
 
-Тон задає **настрій**, а профіль стилю (`src/ai/prompts/my-style.prompt.ts`) — **форму**: довжину, регістр, словечки. Профіль діє завжди.
+The tone sets the **mood**, while the style profile (`src/ai/prompts/my-style.prompt.ts`) sets the **form**: length, casing, pet phrases. The style profile always applies.
 
 ---
 
-## 🗂️ Структура проекту
+## 🗂️ Project structure
 
 ```
 src/
-├── ai/                     # усе, що стосується LLM
-│   ├── ai.service.ts       # генерація відповідей, питань, аналізу, фактів
-│   ├── llm.client.ts       # OpenAI-сумісний клієнт (Groq)
-│   ├── speech.service.ts   # Whisper: голосові → текст
-│   ├── vision.service.ts   # опис фото/стікерів/GIF/відео
-│   └── prompts/            # базовий промпт, стиль, факти, аналіз інтересу
+├── ai/                         # everything LLM-related
+│   ├── ai.service.ts           # replies, questions, interest analysis, facts
+│   ├── llm.client.ts           # OpenAI-compatible client (Groq)
+│   ├── speech.service.ts       # Whisper: voice → text
+│   ├── vision.service.ts       # describes photos/stickers/GIFs/videos
+│   └── prompts/                # base prompt, style, facts, interest analysis
 ├── bot/
-│   ├── bot.update.ts       # команди, кнопки, вхідні повідомлення
-│   ├── business.handler.ts # Telegram Business: її чат, правки, видалення
-│   ├── conversation.service.ts # чернетки, автовідправка, «друкує…»
-│   ├── batching.ts         # скільки чекати, поки вона допише
-│   ├── auto-send.ts        # таймінги автовідправки
-│   └── access.ts           # allowlist за Telegram ID
-├── session/                # сесії в MongoDB
-├── stats/                  # графік (canvas) і текст статистики
-├── tones/                  # пресети тонів
-└── database/               # підключення до MongoDB
+│   ├── bot.update.ts           # commands, buttons, incoming messages
+│   ├── business.handler.ts     # Telegram Business: her chat, edits, deletions
+│   ├── conversation.service.ts # drafts, auto-send, "typing…"
+│   ├── batching.ts             # how long to wait for her to finish
+│   ├── auto-send.ts            # auto-send timings
+│   └── access.ts               # Telegram ID allowlist
+├── session/                    # sessions stored in MongoDB
+├── stats/                      # chart (canvas) and stats text
+├── tones/                      # tone presets
+└── database/                   # MongoDB connection
 ```
 
 ---
 
-## 🛠️ Розробка
+## 🛠️ Development
 
 ```bash
-pnpm start:dev     # запуск з hot reload
-pnpm build         # збірка в dist/
-pnpm start:prod    # запуск зібраної версії
-pnpm lint          # ESLint з автофіксом
+pnpm start:dev     # run with hot reload
+pnpm build         # build into dist/
+pnpm start:prod    # run the built version
+pnpm lint          # ESLint with autofix
 pnpm format        # Prettier
-pnpm test          # unit-тести
+pnpm test          # unit tests
 ```
 
-Сесії зберігаються в MongoDB і записуються при зупинці (`Ctrl+C`), тож історія й налаштування переживають перезапуск.
+Sessions are stored in MongoDB and flushed on shutdown (`Ctrl+C`), so history and settings survive restarts.
 
 ---
 
 ## 🗺️ Roadmap
 
-- [x] Довга пам'ять — факти про неї й про тебе
-- [x] Фото, стікери, GIF і відео через vision-модель
-- [x] «Друкує…» і реалістичні паузи при автовідправці
-- [ ] 2–3 варіанти відповіді на вибір (вибір = сигнал для стилю)
-- [ ] Стоп-сигнали — вимикати автовідправку, коли розмова серйозна чи вона питає «це ти пишеш?»
-- [ ] Нагадування — давно не відповів / розмова затихла
-- [ ] Кілька чатів одночасно
+- [x] Long-term memory: facts about her and about you
+- [x] Photos, stickers, GIFs and videos via a vision model
+- [x] "Typing…" and realistic pauses during auto-send
+- [ ] 2–3 reply options to choose from (the choice is a style signal)
+- [ ] Stop signals: turn off auto-send when the chat gets serious or she asks "is this you writing?"
+- [ ] Reminders: you haven't replied in a while / the conversation went quiet
+- [ ] Multiple chats at once
 
 ---
 
 <div align="center">
 
-Зроблено з ☕ і NestJS · AI на безкоштовному [Groq](https://groq.com)
+Made with ☕ and NestJS · AI powered by free [Groq](https://groq.com)
 
 </div>

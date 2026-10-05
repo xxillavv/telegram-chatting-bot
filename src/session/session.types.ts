@@ -3,7 +3,16 @@ export type Speaker = 'her' | 'me';
 export interface ChatLine {
   from: Speaker;
   text: string;
+  // Коли написано (мс) — модель має розуміти паузи і час доби
+  at?: number;
+  // На яке повідомлення це відповідь (свайп «Відповісти» в Telegram)
+  replyTo?: string;
+  // id повідомлення в її чаті — щоб підхопити редагування і видалення
+  messageId?: number;
 }
+
+// Те, що відомо про повідомлення крім тексту
+export type LineMeta = Pick<ChatLine, 'at' | 'replyTo' | 'messageId'>;
 
 // Його правка нашої відповіді — з них модель вчиться його стилю
 export interface StyleEdit {

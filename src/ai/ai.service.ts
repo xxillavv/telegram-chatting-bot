@@ -18,6 +18,7 @@ import {
   STYLE_FORMAT,
 } from './prompts/my-style.prompt';
 import { formatStats } from '../stats/stats.text';
+import { nowContext, plural, timeMarker } from './time';
 
 const EMOJI_RE = /[\p{Extended_Pictographic}\u{FE0F}\u{200D}]/gu;
 
@@ -68,10 +69,30 @@ function applyStyleFormat(text: string): string {
 
 const QUESTIONS_COUNT = 3;
 
-function formatLines(lines: Session['history']): string {
-  return lines
-    .map((line) => `${line.from === 'her' ? 'Вона' : 'Я'}: ${line.text}`)
-    .join('\n');
+const MAX_QUOTE = 100;
+
+function quote(text: string): string {
+  const flat = text.replace(/\s+/g, ' ').trim();
+  return flat.length > MAX_QUOTE ? `${flat.slice(0, MAX_QUOTE)}…` : flat;
+}
+
+// prev — рядок перед першим, щоб правильно порахувати паузу
+function formatLines(
+  lines: Session['history'],
+  prev?: Session['history'][number],
+): string {
+  const out: string[] = [];
+  for (const line of lines) {
+    const marker = timeMarker(line, prev);
+    if (marker) out.push(marker);
+    const who = line.from === 'her' ? 'Вона' : 'Я';
+    const reply = line.replyTo
+      ? ` (у відповідь на «${quote(line.replyTo)}»)`
+      : '';
+    out.push(`${who}${reply}: ${line.text}`);
+    prev = line;
+  }
+  return out.join('\n');
 }
 
 function formatFacts(facts: string[]): string {
@@ -119,6 +140,7 @@ export class AiService {
     const parts = [
       formatStats(session.stats),
       `Переписка (останні повідомлення внизу):\n${formatLines(session.history)}`,
+      nowContext(session.history),
     ];
     if (session.facts?.length) {
       parts.unshift(`Що відомо про неї:\n${formatFacts(session.facts)}`);
@@ -255,11 +277,11 @@ export class AiService {
         : 'Це початок переписки.',
     );
     parts.push(
-      `Її нові повідомлення, на які треба відповісти:\n${formatLines(fresh)}`,
+      `Її нові повідомлення, на які треба відповісти:\n${formatLines(fresh, earlier.at(-1))}`,
     );
     if (fresh.length > 1) {
       parts.push(
-        `Вона написала ${fresh.length} повідомлень підряд. Прочитай їх усі як одну думку і відповідай на все разом, а не лише на останнє:
+        `Вона написала ${fresh.length} ${plural(fresh.length, 'повідомлення', 'повідомлення', 'повідомлень')} підряд. Прочитай їх усі як одну думку і відповідай на все разом, а не лише на останнє:
 - Якщо в них кілька питань, коротко дай відповідь на кожне, жодне не пропускай.
 - Якщо вона чимось поділилась (новина, емоція, історія), а потім спитала, спершу зреагуй на те, чим поділилась, потім відповідай.
 - Якщо вона сама себе виправила чи уточнила, відповідай на остаточний варіант.`,
@@ -287,6 +309,9 @@ export class AiService {
     }
 
     parts.push(`${STYLE_RULES}\n- ${session.emoji ? EMOJI_ON : EMOJI_OFF}`);
+    parts.push(
+      `ЧАС: ${nowContext(session.history)} У переписці в дужках позначено, коли писали і скільки минуло між повідомленнями. Зважай на час доби (не бажай доброго ранку ввечері) і на паузи: після довгої перерви не продовжуй стару тему так, ніби її щойно обговорювали.`,
+    );
     parts.push(MY_STYLE);
 
     const context = [

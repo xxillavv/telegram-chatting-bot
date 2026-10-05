@@ -120,7 +120,7 @@ export class SessionService implements OnModuleInit, BeforeApplicationShutdown {
 
   addLine(chatId: number, line: ChatLine) {
     const session = this.get(chatId);
-    session.history.push(line);
+    session.history.push({ at: Date.now(), ...line });
     session.factsPending = this.factsPending(session) + 1;
 
     const side = session.stats[line.from];

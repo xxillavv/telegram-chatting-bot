@@ -505,7 +505,7 @@ export class BotUpdate implements OnModuleInit {
     // У Bot API у forward_origin є date, а типи Telegraf 4.16 про це не знають
     const originDate = (origin as { date?: number } | undefined)?.date;
     const writtenAt = originDate ? originDate * 1000 : undefined;
-    this.conversation.addHers(chatId, text, false, writtenAt);
+    this.conversation.addHers(chatId, text, false, { at: writtenAt });
   }
 
   private async showHelp(ctx: Context) {

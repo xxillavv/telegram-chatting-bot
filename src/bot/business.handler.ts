@@ -2,19 +2,29 @@ import { Injectable, OnModuleInit } from '@nestjs/common';
 import { InjectBot } from 'nestjs-telegraf';
 import { Telegraf } from 'telegraf';
 import { SessionService } from '../session/session.service';
-import { Session } from '../session/session.types';
+import { LineMeta, Session } from '../session/session.types';
 import {
   BusinessConnection,
   BusinessMessage,
+  BusinessMessagesDeleted,
   canReply,
 } from './business.types';
 import { isAllowed } from './access';
 import { ConversationService } from './conversation.service';
 import { describeNonText, extractAudio } from './media';
+import type { Message } from 'telegraf/types';
 
 type BusinessUpdate = {
   business_connection?: BusinessConnection;
   business_message?: BusinessMessage;
+  edited_business_message?: BusinessMessage;
+  deleted_business_messages?: BusinessMessagesDeleted;
+};
+
+// Telegraf 4.16 не знає про цитату частини повідомлення (Bot API 7.0)
+type ReplyInfo = {
+  reply_to_message?: Message;
+  quote?: { text: string };
 };
 
 // Telegram Business: власник підключає бота в налаштуваннях Telegram,
@@ -35,6 +45,10 @@ export class BusinessHandler implements OnModuleInit {
           await this.onConnection(update.business_connection);
         } else if (update.business_message) {
           await this.onMessage(update.business_message);
+        } else if (update.edited_business_message) {
+          await this.onEdited(update.edited_business_message);
+        } else if (update.deleted_business_messages) {
+          await this.onDeleted(update.deleted_business_messages);
         } else {
           return next();
         }
@@ -128,15 +142,56 @@ export class BusinessHandler implements OnModuleInit {
     const fromOwner = message.from?.id === session.business!.ownerId;
     const text = await this.extractText(owner, message);
     if (!text) return;
+    const meta = this.lineMeta(message);
 
     if (fromOwner) {
       // Він написав їй сам з телефона — це теж його стиль
-      this.conversation.addMine(owner, text);
+      this.conversation.addMine(owner, text, meta);
       return;
     }
 
     // Сповіщення прийде одне на всю пачку, коли вона допише
-    this.conversation.addHers(owner, text, true);
+    this.conversation.addHers(owner, text, true, meta);
+  }
+
+  private lineMeta(message: BusinessMessage): LineMeta {
+    const { reply_to_message: replied, quote } = message as ReplyInfo;
+    let replyTo: string | undefined = quote?.text;
+    if (!replyTo && replied) {
+      replyTo =
+        ('text' in replied && replied.text) ||
+        ('caption' in replied && replied.caption) ||
+        describeNonText(replied) ||
+        undefined;
+    }
+    return {
+      at: message.date * 1000,
+      messageId: message.message_id,
+      replyTo,
+    };
+  }
+
+  private async onEdited(message: BusinessMessage) {
+    const session = await this.resolveSession(message.business_connection_id);
+    if (!session || session.linked?.chatId !== message.chat.id) return;
+    const text =
+      ('text' in message && message.text) ||
+      ('caption' in message && message.caption);
+    if (!text) return;
+    this.conversation.editLine(
+      session.business!.ownerId,
+      message.message_id,
+      text,
+    );
+  }
+
+  private async onDeleted(update: BusinessMessagesDeleted) {
+    const session = await this.resolveSession(update.business_connection_id);
+    if (!session || session.linked?.chatId !== update.chat.id) return;
+    this.conversation.removeLines(
+      session.business!.ownerId,
+      update.message_ids,
+    );
   }
 
   private async extractText(

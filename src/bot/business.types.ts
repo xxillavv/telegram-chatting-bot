@@ -20,6 +20,12 @@ export type BusinessMessage = Message & {
   sender_business_bot?: User;
 };
 
+export interface BusinessMessagesDeleted {
+  business_connection_id: string;
+  chat: { id: number };
+  message_ids: number[];
+}
+
 export const BUSINESS_UPDATES = [
   'business_connection',
   'business_message',

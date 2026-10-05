@@ -4,7 +4,7 @@ import { Telegraf } from 'telegraf';
 import { AiService } from '../ai/ai.service';
 import { SpeechService } from '../ai/speech.service';
 import { SessionService } from '../session/session.service';
-import { Session } from '../session/session.types';
+import { LineMeta, Session } from '../session/session.types';
 import {
   AUTO_BATCH_FACTOR,
   FORWARD_DELAY_MS,
@@ -78,7 +78,7 @@ export class ConversationService {
   }
 
   // Його власне повідомлення — справжнє, тож заодно вчимося на ньому стилю
-  addMine(chatId: number, text: string) {
+  addMine(chatId: number, text: string, meta: LineMeta = {}) {
     const session = this.sessions.get(chatId);
     if (session.draft) {
       this.sessions.addStyleEdit(chatId, {
@@ -87,30 +87,85 @@ export class ConversationService {
       });
     }
     session.draft = undefined;
-    this.sessions.addLine(chatId, { from: 'me', text });
+    this.sessions.addLine(chatId, { from: 'me', text, ...meta });
   }
 
   // live: повідомлення з підключеного чату (Telegram Business), де ми бачимо все самі.
   // При пересиланні не бачимо, що він відправив, тож вважаємо, що нашу чернетку, —
-  // якщо тільки її повідомлення не написане раніше за чернетку (writtenAt — дата оригіналу).
-  addHers(chatId: number, text: string, live: boolean, writtenAt?: number) {
+  // якщо тільки її повідомлення не написане раніше за чернетку (meta.at — дата оригіналу).
+  addHers(chatId: number, text: string, live: boolean, meta: LineMeta = {}) {
     const session = this.sessions.get(chatId);
-    this.lastHerAt.set(chatId, Date.now());
     if (session.draft) {
       const continuation =
         live ||
-        (writtenAt !== undefined &&
-          writtenAt <= (this.draftAt.get(chatId) ?? 0));
+        (meta.at !== undefined && meta.at <= (this.draftAt.get(chatId) ?? 0));
       // Вона дописує думку — стара чернетка вже не про те, нова прийде на все разом
-      if (continuation) void this.deleteDraftMessage(chatId);
+      if (continuation) this.dropDraft(chatId);
       else this.addMyLines(chatId, session.draft);
     }
+    this.dropDraft(chatId);
+    this.lastHerAt.set(chatId, Date.now());
+    this.sessions.addLine(chatId, { from: 'her', text, ...meta });
+    this.scheduleReply(chatId, text, live);
+  }
+
+  // Повідомлення в її чаті змінили. Якщо це її повідомлення, на яке ще нема відповіді, — відповідь треба переписати
+  editLine(chatId: number, messageId: number, text: string) {
+    const session = this.sessions.get(chatId);
+    const line = session.history.find((l) => l.messageId === messageId);
+    if (!line || line.text === text) return;
+    const redo = line.from === 'her' && this.isUnanswered(session, line);
+    line.text = text;
+    if (redo) this.redoReply(chatId, `✏️ змінила: ${text}`);
+  }
+
+  // Повідомлення в її чаті видалили — модель не має відповідати на те, чого вже нема
+  removeLines(chatId: number, messageIds: number[]) {
+    const session = this.sessions.get(chatId);
+    const removed = session.history.filter(
+      (l) => l.messageId !== undefined && messageIds.includes(l.messageId),
+    );
+    if (!removed.length) return;
+    const redo = removed.some(
+      (l) => l.from === 'her' && this.isUnanswered(session, l),
+    );
+    session.history = session.history.filter((l) => !removed.includes(l));
+    if (!redo) return;
+
+    if (session.history.at(-1)?.from === 'her') {
+      this.redoReply(chatId, '🗑 видалила повідомлення');
+    } else {
+      // Відповідати вже нема на що
+      this.dropDraft(chatId);
+      this.cancelBatch(chatId);
+    }
+  }
+
+  // Після його останньої репліки — тобто відповідь на нього ще готується
+  private isUnanswered(session: Session, line: Session['history'][number]) {
+    const index = session.history.indexOf(line);
+    return !session.history.slice(index).some((l) => l.from === 'me');
+  }
+
+  private redoReply(chatId: number, notice: string) {
+    this.dropDraft(chatId);
+    this.lastHerAt.set(chatId, Date.now());
+    this.scheduleReply(chatId, notice, true);
+  }
+
+  // Поточна чернетка більше не актуальна: прибираємо її з чату і зупиняємо все, що з нею пов'язане
+  private dropDraft(chatId: number) {
+    const session = this.sessions.get(chatId);
+    void this.deleteDraftMessage(chatId);
     session.draft = undefined;
     session.draftMessageId = undefined;
     this.cancelAutoSend(chatId);
     this.bumpGeneration(chatId);
-    this.sessions.addLine(chatId, { from: 'her', text });
-    this.scheduleReply(chatId, text, live);
+  }
+
+  private cancelBatch(chatId: number) {
+    clearTimeout(this.batches.get(chatId)?.timer);
+    this.batches.delete(chatId);
   }
 
   // Вона пише кількома короткими повідомленнями — чекаємо, поки допише думку
@@ -289,13 +344,20 @@ export class ConversationService {
     const extra = { business_connection_id: connectionId } as object;
 
     // Кожен рядок — окреме повідомлення, як він і пише
+    const sent: { text: string; messageId: number }[] = [];
     for (const line of splitMessages(text)) {
-      await this.bot.telegram.sendMessage(herChatId, line, extra);
+      const message = await this.bot.telegram.sendMessage(
+        herChatId,
+        line,
+        extra,
+      );
+      sent.push({ text: line, messageId: message.message_id });
     }
 
     session.draft = undefined;
     session.draftMessageId = undefined;
-    this.addMyLines(chatId, text);
+    for (const line of sent)
+      this.sessions.addLine(chatId, { from: 'me', ...line });
   }
 
   private addMyLines(chatId: number, text: string) {

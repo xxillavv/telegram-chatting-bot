@@ -47,6 +47,8 @@ const MIN_HER_MESSAGES_FOR_ANALYSIS = 3;
 
 const ABOUT_PROMPT =
   "Розкажи про неї і ваше спілкування: ім'я, вік, як познайомились, спільні теми, що варто знати. Наступне повідомлення я збережу як контекст.";
+const LINK_PROMPT =
+  'Введи @username дівчини, за чиїм чатом стежити. Якщо юзернейму нема, просто перешли мені будь-яке її повідомлення.';
 const CUSTOM_TONE_PROMPT =
   'Опиши, як мені писати. Наприклад: «стримано, трохи загадково, без емодзі, на "ви"»';
 
@@ -363,15 +365,17 @@ export class BotUpdate implements OnModuleInit {
     const name = session.seenChats[chatId];
     if (!name) return ctx.answerCbQuery('Цей чат уже недоступний');
 
-    // Інша дівчина — інша переписка
-    if (session.linked && session.linked.chatId !== chatId) {
-      this.sessions.resetHistory(ctx.chat!.id);
-    }
-    session.linked = { chatId, name };
+    this.sessions.link(ctx.chat!.id, { chatId, name });
     await ctx.answerCbQuery(`Підключено ${name}`);
     await ctx.editMessageText(
       `🔗 Стежу за чатом з ${name}. Її нові повідомлення прийдуть сюди разом з варіантом відповіді.`,
     );
+  }
+
+  @Action('change_chat')
+  async changeChat(@Ctx() ctx: Context) {
+    await ctx.answerCbQuery();
+    await this.askLink(ctx);
   }
 
   @Action('auto_stop')
@@ -405,6 +409,7 @@ export class BotUpdate implements OnModuleInit {
   async unlinkChat(@Ctx() ctx: Context) {
     const session = this.sessions.get(ctx.chat!.id);
     session.linked = undefined;
+    session.pendingLink = undefined;
     session.draft = undefined;
     this.conversation.cancelAutoSend(ctx.chat!.id);
     await ctx.answerCbQuery('Відключено');
@@ -456,6 +461,11 @@ export class BotUpdate implements OnModuleInit {
   ) {
     const chatId = ctx.chat!.id;
     const session = this.sessions.get(chatId);
+
+    if (session.awaiting === 'link') {
+      await this.applyLink(ctx, text, origin);
+      return;
+    }
 
     if (session.awaiting === 'edit') {
       this.applyEdit(chatId, text);
@@ -545,7 +555,7 @@ export class BotUpdate implements OnModuleInit {
               ]
             : []),
           '',
-          'Коли вона напише, я запропоную підключити чат.',
+          'Потім знову натисни /chat і вкажи її @username.',
         ].join('\n'),
       );
       return;
@@ -558,16 +568,69 @@ export class BotUpdate implements OnModuleInit {
         '',
       );
     }
-    if (session.linked) {
-      lines.push(`Стежу за чатом з ${session.linked.name} ✅`);
-    } else if (Object.keys(session.seenChats).length) {
-      lines.push('Обери, за чиїм чатом стежити:');
-    } else {
+    if (session.pendingLink) {
       lines.push(
-        'Telegram для бізнесу підключено. Щойно вона напише в одному з вибраних чатів, я запропоную його підключити.',
+        `Чекаю на перше повідомлення в чаті з @${session.pendingLink}, тоді й підключу.`,
       );
+    } else if (session.linked) {
+      lines.push(`Стежу за чатом з ${session.linked.name} ✅`);
+    } else {
+      if (lines.length > 2) await ctx.reply(lines.join('\n'));
+      await this.askLink(ctx);
+      return;
     }
     await ctx.reply(lines.join('\n'), chatKeyboard(session));
+  }
+
+  private async askLink(ctx: Context) {
+    this.sessions.get(ctx.chat!.id).awaiting = 'link';
+    await ctx.reply(LINK_PROMPT, cancelKeyboard);
+  }
+
+  // Юзернейм або переслане її повідомлення → чат, за яким стежити
+  private async applyLink(ctx: Context, text: string, origin: ForwardOrigin) {
+    const chatId = ctx.chat!.id;
+    const session = this.sessions.get(chatId);
+
+    if (origin) {
+      if (origin.type !== 'user') {
+        await ctx.reply(
+          'У неї прихований акаунт при пересиланні, тож я не бачу, хто це. Введи її @username.',
+          cancelKeyboard,
+        );
+        return;
+      }
+      const user = origin.sender_user;
+      session.awaiting = undefined;
+      this.sessions.link(chatId, { chatId: user.id, name: user.first_name });
+      await ctx.reply(`🔗 Стежу за чатом з ${user.first_name} ✅`);
+      return;
+    }
+
+    const username = /^(?:@|(?:https?:\/\/)?t\.me\/)?([a-z0-9_]{4,32})$/i
+      .exec(text.trim())?.[1]
+      ?.toLowerCase();
+    if (!username) {
+      await ctx.reply(
+        'Це не схоже на юзернейм. Введи у форматі @username або перешли її повідомлення.',
+        cancelKeyboard,
+      );
+      return;
+    }
+
+    session.awaiting = undefined;
+    const known = session.seenUsernames?.[username];
+    if (known !== undefined) {
+      const name = session.seenChats[known] ?? `@${username}`;
+      this.sessions.link(chatId, { chatId: known, name });
+      await ctx.reply(`🔗 Стежу за чатом з ${name} ✅`);
+      return;
+    }
+
+    session.pendingLink = username;
+    await ctx.reply(
+      `Запам'ятав @${username}. Щойно в чаті з нею з'явиться нове повідомлення (від неї чи від тебе), почну стежити.\n\nПереконайся, що її чат є серед вибраних у Налаштування → Telegram для бізнесу → Чат-боти.`,
+    );
   }
 
   private async showStats(ctx: Context) {

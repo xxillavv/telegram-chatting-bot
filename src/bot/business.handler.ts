@@ -1,6 +1,6 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { InjectBot } from 'nestjs-telegraf';
-import { Markup, Telegraf } from 'telegraf';
+import { Telegraf } from 'telegraf';
 import { SessionService } from '../session/session.service';
 import { Session } from '../session/session.types';
 import {
@@ -78,7 +78,7 @@ export class BusinessHandler implements OnModuleInit {
     await this.bot.telegram.sendMessage(
       owner,
       session.business!.canReply
-        ? '✅ Бот підключений до Telegram для бізнесу. Коли вона напише в одному з вибраних чатів, я запропоную його підключити.'
+        ? '✅ Бот підключений до Telegram для бізнесу. Тепер напиши /chat і вкажи її @username, щоб я стежив за її чатом.'
         : '⚠️ Бот підключений, але без дозволу відповідати. Увімкни «Відповідати на повідомлення» в налаштуваннях чат-бота, інакше кнопки «Відправити» не буде.',
     );
   }
@@ -111,10 +111,19 @@ export class BusinessHandler implements OnModuleInit {
     };
     const name = chat.first_name ?? chat.username ?? 'Співрозмовник';
 
-    if (session.linked?.chatId !== chat.id) {
-      await this.offerLink(owner, session, chat.id, name);
-      return;
+    this.remember(session, chat.id, name, chat.username);
+    if (
+      session.pendingLink &&
+      session.pendingLink === chat.username?.toLowerCase()
+    ) {
+      this.sessions.link(owner, { chatId: chat.id, name });
+      await this.bot.telegram.sendMessage(
+        owner,
+        `🔗 Підключено чат з ${name}. Її нові повідомлення прийдуть сюди разом з варіантом відповіді.`,
+      );
     }
+    // Чужі чати лише запам'ятовуємо мовчки — підключає він сам через /chat
+    if (session.linked?.chatId !== chat.id) return;
 
     const fromOwner = message.from?.id === session.business!.ownerId;
     const text = await this.extractText(owner, message);
@@ -156,23 +165,19 @@ export class BusinessHandler implements OnModuleInit {
     return caption;
   }
 
-  // Новий чат з'явився — пропонуємо підключити, але лише раз і лише коли ще нічого не підключено
-  private async offerLink(
-    owner: number,
+  // Щоб підключити чат за юзернеймом одразу, якщо вона вже писала
+  private remember(
     session: Session,
     chatId: number,
     name: string,
+    username?: string,
   ) {
-    const isNew = !(chatId in session.seenChats);
     session.seenChats[chatId] = name;
-    if (!isNew || session.linked) return;
-
-    await this.bot.telegram.sendMessage(
-      owner,
-      `📩 Нове повідомлення від ${name}. Стежити за цим чатом?`,
-      Markup.inlineKeyboard([
-        Markup.button.callback(`🔗 Підключити ${name}`, `link:${chatId}`),
-      ]),
-    );
+    if (username) {
+      session.seenUsernames ??= {};
+      session.seenUsernames[username.toLowerCase()] = chatId;
+    }
+    // Поки вона не писала, замість імені стояв юзернейм
+    if (session.linked?.chatId === chatId) session.linked.name = name;
   }
 }

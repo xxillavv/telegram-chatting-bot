@@ -73,15 +73,10 @@ export function questionKeyboard(canSend: boolean): InlineKeyboard {
 }
 
 export function chatKeyboard(session: Session): InlineKeyboard {
-  const others = Object.entries(session.seenChats).filter(
-    ([id]) => Number(id) !== session.linked?.chatId,
-  );
   return Markup.inlineKeyboard([
-    ...others.map(([id, name]) => [
-      Markup.button.callback(`🔗 ${name}`, `link:${id}`),
-    ]),
     ...(canSendTo(session) ? [[autoSendButton(session)]] : []),
-    ...(session.linked
+    [Markup.button.callback('🔁 Інший чат', 'change_chat')],
+    ...(session.linked || session.pendingLink
       ? [[Markup.button.callback('🔌 Відключити', 'unlink')]]
       : []),
   ]);

@@ -146,6 +146,16 @@ export class SessionService implements OnModuleInit, BeforeApplicationShutdown {
     return session.factsPending ?? session.history.length;
   }
 
+  // Почати стежити за її чатом; інша дівчина — інша переписка
+  link(chatId: number, target: { chatId: number; name: string }) {
+    const session = this.get(chatId);
+    if (session.linked && session.linked.chatId !== target.chatId) {
+      this.resetHistory(chatId);
+    }
+    session.linked = target;
+    session.pendingLink = undefined;
+  }
+
   resetHistory(chatId: number) {
     const session = this.get(chatId);
     session.history = [];

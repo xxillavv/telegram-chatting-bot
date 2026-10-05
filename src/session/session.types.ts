@@ -37,7 +37,7 @@ export interface Session {
   draft?: string;
   // Повідомлення бота з цією чернеткою — щоб позначити його застарілим
   draftMessageId?: number;
-  awaiting?: 'tone' | 'about' | 'edit';
+  awaiting?: 'tone' | 'about' | 'edit' | 'link';
   // Текст відповіді, яку він зараз править
   editTarget?: string;
   // Останні запропоновані питання — щоб обрати одне кнопкою
@@ -53,8 +53,12 @@ export interface Session {
   autoSend?: boolean;
   // Чат з нею, за яким стежимо
   linked?: { chatId: number; name: string };
-  // Бізнес-чати, з яких приходили повідомлення — щоб обрати, який підключити
+  // Бізнес-чати, з яких приходили повідомлення: id → ім'я
   seenChats: Record<number, string>;
+  // Юзернейми тих самих чатів (без @, малими літерами) → id
+  seenUsernames?: Record<string, number>;
+  // Юзернейм, який він вказав, а вона ще не писала — підключимо з першим повідомленням
+  pendingLink?: string;
   // Не скидається разом з історією — стиль один на весь чат
   styleEdits: StyleEdit[];
   // Довга пам'ять: факти про неї, які LLM сама витягує з переписки

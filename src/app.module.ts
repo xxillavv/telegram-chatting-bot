@@ -3,6 +3,7 @@ import { TelegrafModule } from 'nestjs-telegraf';
 import 'dotenv/config';
 import { BotModule } from './bot/bot.module';
 import { DatabaseModule } from './database/database.module';
+import { HealthController } from './health.controller';
 import { BUSINESS_UPDATES } from './bot/business.types';
 
 @Module({
@@ -21,5 +22,6 @@ import { BUSINESS_UPDATES } from './bot/business.types';
     }),
     BotModule,
   ],
+  controllers: [HealthController],
 })
 export class AppModule {}

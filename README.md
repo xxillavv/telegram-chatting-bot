@@ -217,12 +217,11 @@ Sessions are stored in MongoDB and flushed on shutdown (`Ctrl+C`), so history an
 
 ## ☁️ Deployment
 
-The bot ships with a `Dockerfile`, and `docker-compose.yml` runs it next to MongoDB on any VM. A step-by-step guide for a free Oracle Cloud ARM instance is in [docs/DEPLOY.md](docs/DEPLOY.md).
+The easiest free setup is **Render + MongoDB Atlas**: connect the repo as a Render Blueprint ([`render.yaml`](render.yaml)), add three secrets, and every push to `main` redeploys. A free uptime monitor pinging `/health` keeps it awake.
 
-```bash
-# on the server, with COMPOSE_PROFILES=bot in .env
-docker compose up -d --build
-```
+For your own VM there's a `Dockerfile` and `docker-compose.yml` (bot + MongoDB), with a guide for a free Oracle Cloud ARM instance.
+
+Step-by-step instructions for both: [docs/DEPLOY.md](docs/DEPLOY.md).
 
 ---
 

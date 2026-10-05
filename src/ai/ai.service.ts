@@ -5,6 +5,7 @@ import { DEFAULT_TONE, findTone } from '../tones/tones';
 import {
   EMOJI_OFF,
   EMOJI_ON,
+  HUMAN_RULES,
   ROLE_PROMPT,
   STYLE_RULES,
 } from './prompts/base.prompt';
@@ -13,6 +14,7 @@ import { InterestAnalysis } from './interest.types';
 import { INTEREST_PROMPT } from './prompts/interest.prompt';
 import { FACTS_PROMPT, MAX_FACTS, MAX_MY_FACTS } from './prompts/facts.prompt';
 import {
+  DIALOG_EXAMPLES,
   MAX_REPLY_MESSAGES,
   MY_STYLE,
   STYLE_FORMAT,
@@ -67,6 +69,72 @@ function applyStyleFormat(text: string): string {
     .join('\n');
 }
 
+// Оклики, три крапки і «??» — типові ознаки згенерованого тексту
+function stripBotPunctuation(text: string): string {
+  return text
+    .split('\n')
+    .map((line) =>
+      line
+        .replace(/!+/g, '')
+        .replace(/(\.{2,}|…)/g, ' ')
+        .replace(/\?{2,}/g, '?')
+        .replace(/ {2,}/g, ' ')
+        .replace(/\s+([,?])/g, '$1')
+        .trim(),
+    )
+    .filter(Boolean)
+    .join('\n');
+}
+
+// Фрази, які модель пише попри заборону, — рядок з ними краще викинути
+const BOT_PHRASES =
+  /звучить (класно|цікаво|круто|чудово)|це чудово|радий чути|розумію тебе|розумію, буває|як пройшов (твій )?день|безумовно|розкажи більше|можу послухати|я тут подумав/i;
+
+function words(text: string): number {
+  return text.split(/\s+/).filter(Boolean).length;
+}
+
+function normalize(text: string): string {
+  return text
+    .toLocaleLowerCase('uk')
+    .replace(/[^\p{L}\p{N} ]/gu, '')
+    .trim();
+}
+
+// Скільки повідомлень і слів доречно у відповідь: на «ок» не пишуть абзац
+function replyBudget(fresh: Session['history']): {
+  messages: number;
+  hint: string;
+} {
+  const total = fresh.reduce((sum, line) => sum + words(line.text), 0);
+  if (total <= 3) {
+    return {
+      messages: 1,
+      hint: 'Вона написала дуже коротко. Відповідай одним коротким повідомленням до 6 слів.',
+    };
+  }
+  if (total <= 15) {
+    return {
+      messages: 2,
+      hint: 'Вона написала коротко. Відповідай 1–2 короткими повідомленнями, разом до 15 слів.',
+    };
+  }
+  return {
+    messages: MAX_REPLY_MESSAGES,
+    hint: 'Вона написала розгорнуто. Можна 2–3 повідомлення, але кожне коротке.',
+  };
+}
+
+function exampleTurns(): OpenAI.ChatCompletionMessageParam[] {
+  return DIALOG_EXAMPLES.flatMap(({ her, me }) => [
+    {
+      role: 'user' as const,
+      content: `Приклад. Її повідомлення:\n${her.map((t) => `Вона: ${t}`).join('\n')}`,
+    },
+    { role: 'assistant' as const, content: me.join('\n') },
+  ]);
+}
+
 const QUESTIONS_COUNT = 3;
 
 const MAX_QUOTE = 100;
@@ -108,8 +176,21 @@ export class AiService {
   async generateReply(session: Session, hint?: string): Promise<string> {
     let userPrompt = this.buildDialogPrompt(session);
     if (hint) userPrompt += `\n${hint}`;
-    const text = await this.complete(session, userPrompt);
-    return text.split('\n').slice(0, MAX_REPLY_MESSAGES).join('\n');
+    const text = await this.complete(session, userPrompt, true);
+
+    // Однакова фраза двічі за розмову — найпомітніша ознака бота
+    const said = new Set(
+      session.history
+        .filter((line) => line.from === 'me')
+        .slice(-30)
+        .map((line) => normalize(line.text)),
+    );
+    const lines = text.split('\n');
+    const fresh = lines.filter(
+      (line) => !said.has(normalize(line)) && !BOT_PHRASES.test(line),
+    );
+    const { messages } = replyBudget(this.freshLines(session));
+    return (fresh.length ? fresh : lines).slice(0, messages).join('\n');
   }
 
   // Питання, щоб розрядити паузу — з урахуванням контексту, переписки, тону і стилю
@@ -236,6 +317,7 @@ export class AiService {
   private async complete(
     session: Session,
     userPrompt: string,
+    withExamples = false,
   ): Promise<string> {
     if (session.styleEdits.length) {
       const samples = session.styleEdits
@@ -249,13 +331,15 @@ export class AiService {
       model: this.model,
       messages: [
         { role: 'system', content: this.buildSystemPrompt(session) },
+        ...(withExamples ? exampleTurns() : []),
         { role: 'user', content: userPrompt },
       ],
-      temperature: 0.9,
+      temperature: 0.8,
+      // Ліміт Groq рахує й зарезервовані токени відповіді — більше не ставити
       max_completion_tokens: 2000,
-      // gpt-oss — reasoning-модель; для коротких реплік вистачає мінімуму
+      // gpt-oss — reasoning-модель; на low пише криву українську і не розуміє сленг («пари»)
       ...(this.model.startsWith('openai/gpt-oss') && {
-        reasoning_effort: 'low' as const,
+        reasoning_effort: 'medium' as const,
       }),
     });
 
@@ -266,20 +350,28 @@ export class AiService {
     // Модель іноді ігнорує заборону — підчищаємо самі
     if (text) text = stripWrapping(text);
     if (text) text = stripDashes(text);
+    if (text) text = stripBotPunctuation(text);
     if (text && !session.emoji) text = stripEmoji(text);
     if (text) text = applyStyleFormat(text);
     if (!text) throw new Error('LLM повернула порожню відповідь');
     return text;
   }
 
-  // Відділяємо її нові повідомлення (після моєї останньої репліки) від попередньої переписки
-  private buildDialogPrompt(session: Session): string {
+  // Її повідомлення після моєї останньої репліки
+  private freshLines(session: Session): Session['history'] {
     const { history } = session;
     let split = history.length;
     while (split > 0 && history[split - 1].from === 'her') split--;
+    return history.slice(split);
+  }
 
-    const earlier = history.slice(0, split);
-    const fresh = history.slice(split);
+  // Відділяємо її нові повідомлення (після моєї останньої репліки) від попередньої переписки
+  private buildDialogPrompt(session: Session): string {
+    const fresh = this.freshLines(session);
+    const earlier = session.history.slice(
+      0,
+      session.history.length - fresh.length,
+    );
 
     const parts: string[] = [];
     parts.push(
@@ -298,8 +390,9 @@ export class AiService {
 - Якщо вона сама себе виправила чи уточнила, відповідай на остаточний варіант.`,
       );
     }
+    parts.push(replyBudget(fresh).hint);
     parts.push(
-      'Напиши мою наступну відповідь, суворо дотримуючись обраного тону.',
+      'Напиши мою наступну відповідь, суворо дотримуючись обраного тону. Перечитай її очима дівчини: якщо звучить як чат-бот чи надто старанно, спрости.',
     );
     return parts.join('\n\n');
   }
@@ -320,6 +413,7 @@ export class AiService {
     }
 
     parts.push(`${STYLE_RULES}\n- ${session.emoji ? EMOJI_ON : EMOJI_OFF}`);
+    parts.push(HUMAN_RULES);
     parts.push(
       `ЧАС: ${nowContext(session.history)} У переписці в дужках позначено, коли писали і скільки минуло між повідомленнями. Зважай на час доби (не бажай доброго ранку ввечері) і на паузи: після довгої перерви не продовжуй стару тему так, ніби її щойно обговорювали.`,
     );

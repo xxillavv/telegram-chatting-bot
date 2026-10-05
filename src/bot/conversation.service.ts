@@ -35,6 +35,22 @@ const FACTS_EVERY = 10;
 // Трохи старіших рядків для контексту до нових
 const FACTS_CONTEXT_LINES = 4;
 
+// Людина набирає ~5 символів на секунду і робить паузу між повідомленнями —
+// миттєва пачка з трьох повідомлень одразу видає бота
+const TYPING_MS_PER_CHAR = 180;
+const MIN_TYPING_MS = 1200;
+const MAX_TYPING_MS = 7000;
+
+function typingDelay(text: string): number {
+  const jitter = 0.8 + Math.random() * 0.5;
+  return Math.min(
+    MAX_TYPING_MS,
+    Math.max(MIN_TYPING_MS, text.length * TYPING_MS_PER_CHAR * jitter),
+  );
+}
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 // Спільна логіка розмови — для пересланих повідомлень і для підключеного чату (Telegram Business)
 function splitMessages(text: string): string[] {
   return text
@@ -376,7 +392,7 @@ export class ConversationService {
     this.autoTimers.set(chatId, timer);
   }
 
-  // Відправка їй від його імені через Telegram Business — одразу, без затримки
+  // Відправка їй від його імені через Telegram Business — з «друкує…», як людина
   async sendToHer(chatId: number, text: string) {
     const session = this.sessions.get(chatId);
     if (!this.canSend(session)) throw new Error('Чат не підключено');
@@ -389,6 +405,11 @@ export class ConversationService {
     // Кожен рядок — окреме повідомлення, як він і пише
     const sent: { text: string; messageId: number }[] = [];
     for (const line of splitMessages(text)) {
+      // У неї світиться «друкує…», поки «набираємо» рядок
+      await this.bot.telegram
+        .sendChatAction(herChatId, 'typing', extra)
+        .catch(() => undefined);
+      await sleep(typingDelay(line));
       const message = await this.bot.telegram.sendMessage(
         herChatId,
         line,

@@ -8,5 +8,20 @@ services:
     volumes:
       - mongo-data:/data/db
 
+  # Лише на сервері: COMPOSE_PROFILES=bot у .env. Локально бот запускається через pnpm,
+  # а два екземпляри з одним токеном конфліктують у Telegram
+  bot:
+    build: .
+    container_name: chatting-bot
+    profiles: [bot]
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      MONGO_URL: mongodb://mongo:27017
+    depends_on:
+      - mongo
+    # Час, щоб сесії встигли записатись у базу при зупинці
+    stop_grace_period: 30s
+
 volumes:
   mongo-data:

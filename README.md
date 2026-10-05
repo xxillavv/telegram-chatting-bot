@@ -27,6 +27,7 @@ With Telegram Business, the bot sees the chat directly and can reply on your beh
 - [Tones](#-tones)
 - [Project structure](#-project-structure)
 - [Development](#-development)
+- [Deployment](#-deployment)
 - [Roadmap](#-roadmap)
 
 ---
@@ -222,6 +223,17 @@ pnpm test          # unit tests
 ```
 
 Sessions are stored in MongoDB and flushed on shutdown (`Ctrl+C`), so history and settings survive restarts.
+
+---
+
+## ☁️ Deployment
+
+The bot ships with a `Dockerfile`, and `docker-compose.yml` runs it next to MongoDB on any VM. A step-by-step guide for a free Oracle Cloud ARM instance is in [docs/DEPLOY.md](docs/DEPLOY.md).
+
+```bash
+# on the server, with COMPOSE_PROFILES=bot in .env
+docker compose up -d --build
+```
 
 ---
 

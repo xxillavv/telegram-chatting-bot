@@ -1,99 +1,242 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+<div align="center">
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+# 💬 Telegram Chatting Bot
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+**Особистий AI-помічник для переписки в Telegram.**
+Пересилаєш її повідомлення — отримуєш відповідь у потрібному тоні й у **твоєму** стилі письма.
+А з Telegram Business бот сам бачить чат і може відповідати від твого імені.
 
-## Description
+![NestJS](https://img.shields.io/badge/NestJS-11-E0234E?logo=nestjs&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
+![Telegraf](https://img.shields.io/badge/Telegraf-4-26A5E4?logo=telegram&logoColor=white)
+![MongoDB](https://img.shields.io/badge/MongoDB-8-47A248?logo=mongodb&logoColor=white)
+![Groq](https://img.shields.io/badge/LLM-Groq_(free)-F55036)
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+</div>
 
-## Project setup
+---
 
-```bash
-$ npm install
+## Зміст
+
+- [Можливості](#-можливості)
+- [Як це працює](#-як-це-працює)
+- [Швидкий старт](#-швидкий-старт)
+- [Змінні середовища](#-змінні-середовища)
+- [Підключення через Telegram Business](#-підключення-через-telegram-business)
+- [Команди й меню](#-команди-й-меню)
+- [Тони](#-тони)
+- [Структура проекту](#-структура-проекту)
+- [Розробка](#-розробка)
+- [Roadmap](#-roadmap)
+
+---
+
+## ✨ Можливості
+
+| | Фіча | Що робить |
+|---|---|---|
+| 🎭 | **Тони** | 8 готових пресетів (флірт, дружній, романтичний, з гумором…) або власний опис тону |
+| ✍️ | **Твій стиль письма** | Відповіді короткими повідомленнями, з маленької літери, твоїми словечками. Бот вчиться на твоїх правках відповідей |
+| 🧠 | **Довга пам'ять** | LLM сама витягує факти про неї й про тебе з переписки та підкладає їх у промпт |
+| 🎤 | **Голосові й кружечки** | Розпізнаються через Whisper і обробляються як звичайний текст |
+| 🖼️ | **Фото, стікери, GIF, відео** | Vision-модель описує, що на них, і бот відповідає по суті |
+| 📦 | **Пачки повідомлень** | Кілька коротких повідомлень підряд — одна думка. Бот чекає, поки вона допише, і відповідає на все разом |
+| 🔗 | **Telegram Business** | Бот бачить її чат напряму, знає про редагування, видалення й цитати, відправляє відповідь кнопкою |
+| ⏱️ | **Автовідправка** | Відповідь іде сама через 10 с, якщо не натиснув «Стоп», — з імітацією «друкує…» і паузами між повідомленнями |
+| 💬 | **Питання для паузи** | Генерує теми, щоб розрядити незручне мовчання |
+| 📊 | **Статистика** | Графік «хто скільки пише» + AI-оцінка її зацікавленості з позитивними/тривожними сигналами й порадою |
+| 🔒 | **Приватність** | Доступ лише для Telegram ID з allowlist |
+| 🆓 | **Безкоштовно** | Тільки free-tier LLM (Groq); провайдер змінюється через `.env` |
+
+---
+
+## 🧩 Як це працює
+
+```mermaid
+flowchart LR
+    A[Її повідомлення<br/>текст / голос / фото] -->|пересилання<br/>або Business| B[Batching<br/>чекаємо, поки допише]
+    V[Whisper] -.голос.-> B
+    I[Vision] -.медіа.-> B
+    B --> C[Промпт:<br/>тон + твій стиль<br/>+ факти + історія]
+    C --> D[LLM · Groq]
+    D --> E[Чернетка відповіді]
+    E -->|✏️ правка| S[Навчання стилю]
+    E -->|🔄 / ✂️| D
+    E -->|📤 кнопка або таймер| F[Відправка в її чат<br/>з «друкує…»]
 ```
 
-## Compile and run the project
+1. **Вхід.** Пересилаєш її повідомлення боту (або вони приходять самі через Telegram Business). Голосові розпізнаються, медіа описується vision-моделлю.
+2. **Батчинг.** Бот дивиться, як закінчується останнє повідомлення: кома, «і», «короче» — чекає довше; «?» чи «)» — відповідає швидше. Максимум — 25 с.
+3. **Генерація.** У промпт ідуть обраний тон, профіль твого стилю, твої минулі правки, факти про неї й про тебе, історія з часом повідомлень і цитатами.
+4. **Чернетка.** Під відповіддю кнопки: надіслати, перегенерувати, коротше, редагувати.
+5. **Відправка.** Від твого імені, з паузами «друкує…» пропорційно довжині кожного повідомлення.
+
+---
+
+## 🚀 Швидкий старт
+
+### Вимоги
+
+- **Node.js** 20+ і **pnpm**
+- **Docker** (для локальної MongoDB)
+- Токен бота від [@BotFather](https://t.me/BotFather)
+- Безкоштовний ключ [Groq](https://console.groq.com/keys)
+
+### Встановлення
 
 ```bash
-# development
-$ npm run start
+git clone git@github.com:xxillavv/telegram-chatting-bot.git
+cd telegram-chatting-bot
 
-# watch mode
-$ npm run start:dev
+pnpm install
+cp .env.example .env      # заповни TG_API_TOKEN і LLM_API_KEY
 
-# production mode
-$ npm run start:prod
+docker compose up -d      # MongoDB на 127.0.0.1:27017
+pnpm start:dev
 ```
 
-## Run tests
+### Перший запуск
+
+Бот за замовчуванням **закритий для всіх**. Напиши йому `/start` — він відповість твоїм Telegram ID. Додай його в `.env`:
+
+```env
+ALLOWED_USER_IDS=123456789
+```
+
+і перезапусти бота. Готово 🎉
+
+---
+
+## ⚙️ Змінні середовища
+
+| Змінна | За замовчуванням | Опис |
+|---|---|---|
+| `TG_API_TOKEN` | — | Токен бота від BotFather |
+| `LLM_API_KEY` | — | Ключ Groq (або іншого OpenAI-сумісного провайдера) |
+| `LLM_BASE_URL` | `https://api.groq.com/openai/v1` | Endpoint OpenAI-сумісного API |
+| `LLM_MODEL` | `openai/gpt-oss-120b` | Модель для відповідей |
+| `STT_MODEL` | `whisper-large-v3` | Модель розпізнавання голосу |
+| `STT_LANGUAGE` | `uk` | Мова голосових (ISO-639-1), порожньо — автовизначення |
+| `VISION_MODEL` | `qwen/qwen3.8-27b` | Модель для опису фото й стікерів |
+| `ALLOWED_USER_IDS` | — | Telegram ID через кому, яким дозволено користуватись ботом |
+| `MONGO_URL` | `mongodb://127.0.0.1:27017` | Підключення до MongoDB |
+| `MONGO_DB` | `telegram-chatting-bot` | Назва бази |
+| `BOT_TIMEZONE` | `Europe/Kyiv` | Часовий пояс, у якому модель бачить час повідомлень |
+
+> [!TIP]
+> Провайдер легко змінити: будь-який OpenAI-сумісний API (OpenRouter `:free`-моделі, Gemini через OpenAI-endpoint тощо) підійде — достатньо поміняти `LLM_BASE_URL` і `LLM_MODEL`.
+
+> [!NOTE]
+> Безкоштовний Groq має ліміт ~8000 токенів на хвилину, тож бот тримає відповіді компактними.
+
+---
+
+## 🔗 Підключення через Telegram Business
+
+Без Business бот працює в режимі «пересилай мені повідомлення». З Business — бачить її чат сам і відповідає від твого імені.
+
+1. У [@BotFather](https://t.me/BotFather) → твій бот → **Bot Settings → Business Mode → Turn on**.
+2. У Telegram: **Налаштування → Telegram Business → Чат-боти** → вкажи свого бота, дай доступ до потрібних чатів і дозвіл відповідати.
+3. У боті натисни **🔗 Чат** (`/chat`) і вибери її чат або вкажи `@username`.
+4. За бажання увімкни **автовідправку** — відповідь піде сама через 10 с, якщо не натиснеш «Стоп», і лише коли вона вже 15 с мовчить.
+
+> [!WARNING]
+> Telegram Business потребує Telegram Premium.
+
+---
+
+## 🕹️ Команди й меню
+
+| Кнопка | Команда | Дія |
+|---|---|---|
+| 💬 Питання | `/questions` | Питання, щоб розрядити паузу |
+| 📊 Статистика | `/stats` | Хто скільки пише і наскільки вона зацікавлена |
+| 🎭 Тон | `/tone` | Обрати тон або описати власний |
+| 🔗 Чат | `/chat` | Підключити її чат через Business |
+| 👩 Про неї | `/about` | Ім'я, як познайомились, що їй подобається + збережені факти |
+| 😀 Емодзі | — | Увімкнути/вимкнути емодзі у відповідях |
+| ⚙️ Налаштування | `/settings` | Поточні налаштування, скидання стилю |
+| 🧹 Нова переписка | `/reset` | Очистити історію (стиль і факти про тебе лишаються) |
+| ❓ Допомога | `/help` | Як користуватись |
+
+**Підказки:**
+- Текст, який ти пишеш боту сам, вважається її повідомленням. Щоб додати свою репліку — почни з `я:` або перешли своє повідомлення.
+- Можна пересилати кілька повідомлень одразу, голосові й кружечки теж.
+- Кнопка **✏️ Редагувати** під відповіддю — найкращий спосіб навчити бота писати як ти.
+
+---
+
+## 🎭 Тони
+
+| Тон | Характер |
+|---|---|
+| 😏 Флірт | Легкий, грайливий, з інтригою |
+| 🔥 Пошлий | Сміливі двозначності, але збавляє оберти, якщо вона холодна |
+| 🤬 Агро | Дерзко й з матом — на ситуації, не на неї |
+| 🙂 Дружній | Тепло і невимушено, без підкатів |
+| ❤️ Романтичний | Ніжно і щиро, без листівкових штампів |
+| 😂 З гумором | Іронія, самоіронія, підхоплює її жарти |
+| 😎 Впевнений | Коротко, спокійно, сам пропонує плани |
+| 🤗 Турботливий | Підтримує, більше слухає, ніж говорить |
+
+Тон задає **настрій**, а профіль стилю (`src/ai/prompts/my-style.prompt.ts`) — **форму**: довжину, регістр, словечки. Профіль діє завжди.
+
+---
+
+## 🗂️ Структура проекту
+
+```
+src/
+├── ai/                     # усе, що стосується LLM
+│   ├── ai.service.ts       # генерація відповідей, питань, аналізу, фактів
+│   ├── llm.client.ts       # OpenAI-сумісний клієнт (Groq)
+│   ├── speech.service.ts   # Whisper: голосові → текст
+│   ├── vision.service.ts   # опис фото/стікерів/GIF/відео
+│   └── prompts/            # базовий промпт, стиль, факти, аналіз інтересу
+├── bot/
+│   ├── bot.update.ts       # команди, кнопки, вхідні повідомлення
+│   ├── business.handler.ts # Telegram Business: її чат, правки, видалення
+│   ├── conversation.service.ts # чернетки, автовідправка, «друкує…»
+│   ├── batching.ts         # скільки чекати, поки вона допише
+│   ├── auto-send.ts        # таймінги автовідправки
+│   └── access.ts           # allowlist за Telegram ID
+├── session/                # сесії в MongoDB
+├── stats/                  # графік (canvas) і текст статистики
+├── tones/                  # пресети тонів
+└── database/               # підключення до MongoDB
+```
+
+---
+
+## 🛠️ Розробка
 
 ```bash
-# unit tests
-$ npm run test
-
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
+pnpm start:dev     # запуск з hot reload
+pnpm build         # збірка в dist/
+pnpm start:prod    # запуск зібраної версії
+pnpm lint          # ESLint з автофіксом
+pnpm format        # Prettier
+pnpm test          # unit-тести
 ```
 
-## Deployment
+Сесії зберігаються в MongoDB і записуються при зупинці (`Ctrl+C`), тож історія й налаштування переживають перезапуск.
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+---
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+## 🗺️ Roadmap
 
-```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
-```
+- [x] Довга пам'ять — факти про неї й про тебе
+- [x] Фото, стікери, GIF і відео через vision-модель
+- [x] «Друкує…» і реалістичні паузи при автовідправці
+- [ ] 2–3 варіанти відповіді на вибір (вибір = сигнал для стилю)
+- [ ] Стоп-сигнали — вимикати автовідправку, коли розмова серйозна чи вона питає «це ти пишеш?»
+- [ ] Нагадування — давно не відповів / розмова затихла
+- [ ] Кілька чатів одночасно
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+---
 
-## Resources
+<div align="center">
 
-Check out a few resources that may come in handy when working with NestJS:
+Зроблено з ☕ і NestJS · AI на безкоштовному [Groq](https://groq.com)
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
-
-## Support
-
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
-
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
-
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
-# telegram-chatting-bot
+</div>

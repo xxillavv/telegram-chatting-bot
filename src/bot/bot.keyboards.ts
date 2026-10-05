@@ -114,9 +114,10 @@ export function settingsKeyboard(session: Session): InlineKeyboard {
       ),
       Markup.button.callback('🗑 Видалити контекст', 'clear_about'),
     ],
+    [Markup.button.callback('🙋 Про мене', 'open_about_me')],
     ...(canSendTo(session) ? [[autoSendButton(session)]] : []),
-    ...(session.facts?.length
-      ? [[Markup.button.callback('🧠 Що я про неї знаю', 'show_facts')]]
+    ...(session.facts?.length || session.myFacts?.length
+      ? [[Markup.button.callback("🧠 Що я пам'ятаю", 'show_facts')]]
       : []),
     ...(session.styleEdits.length
       ? [[Markup.button.callback('🧽 Скинути мій стиль', 'clear_style')]]
@@ -124,9 +125,25 @@ export function settingsKeyboard(session: Session): InlineKeyboard {
   ]);
 }
 
-export const factsKeyboard: InlineKeyboard = Markup.inlineKeyboard([
-  Markup.button.callback('🗑 Забути все', 'clear_facts'),
-]);
+export function factsKeyboard(session: Session): InlineKeyboard {
+  return Markup.inlineKeyboard([
+    ...(session.facts?.length
+      ? [[Markup.button.callback('🗑 Забути про неї', 'clear_facts')]]
+      : []),
+    ...(session.myFacts?.length
+      ? [[Markup.button.callback('🗑 Забути про мене', 'clear_my_facts')]]
+      : []),
+  ]);
+}
+
+export function aboutMeKeyboard(session: Session): InlineKeyboard {
+  return Markup.inlineKeyboard([
+    ...(session.aboutMe
+      ? [[Markup.button.callback('🗑 Видалити', 'clear_about_me')]]
+      : []),
+    [Markup.button.callback('❌ Скасувати', 'cancel_input')],
+  ]);
+}
 
 export const cancelKeyboard: InlineKeyboard = Markup.inlineKeyboard([
   Markup.button.callback('❌ Скасувати', 'cancel_input'),

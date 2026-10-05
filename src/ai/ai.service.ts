@@ -11,7 +11,7 @@ import {
 import { LLM_CLIENT } from './llm.client';
 import { InterestAnalysis } from './interest.types';
 import { INTEREST_PROMPT } from './prompts/interest.prompt';
-import { FACTS_PROMPT, MAX_FACTS } from './prompts/facts.prompt';
+import { FACTS_PROMPT, MAX_FACTS, MAX_MY_FACTS } from './prompts/facts.prompt';
 import {
   MAX_REPLY_MESSAGES,
   MY_STYLE,
@@ -169,33 +169,44 @@ export class AiService {
     };
   }
 
-  // Оновлений список фактів про неї з урахуванням свіжих повідомлень
+  // Оновлені списки фактів про неї і про нього з урахуванням свіжих повідомлень
   async extractFacts(
     session: Session,
     lines: Session['history'],
-  ): Promise<string[]> {
-    const known = session.facts?.length
-      ? formatFacts(session.facts)
-      : 'Поки нічого.';
+  ): Promise<{ her: string[]; me: string[] }> {
+    const known = (facts?: string[]) =>
+      facts?.length ? formatFacts(facts) : 'Поки нічого.';
     const parts = [
-      `Відомі факти про неї:\n${known}`,
+      `Відомі факти про неї:\n${known(session.facts)}`,
+      `Відомі факти про нього:\n${known(session.myFacts)}`,
       `Свіжа переписка:\n${formatLines(lines)}`,
     ];
+    if (session.aboutMe) {
+      parts.unshift(`Що він сам розповів про себе: ${session.aboutMe}`);
+    }
     if (session.about) {
       parts.unshift(`Що він сам розповів про неї: ${session.about}`);
     }
 
-    const data = await this.completeJson<{ facts?: unknown }>(
+    const data = await this.completeJson<{ her?: unknown; me?: unknown }>(
       FACTS_PROMPT,
       parts.join('\n\n'),
       'low',
     );
-    if (!Array.isArray(data.facts)) throw new Error('LLM не повернула фактів');
-    return data.facts
-      .filter((f): f is string => typeof f === 'string')
-      .map((f) => stripDashes(f.trim()))
-      .filter(Boolean)
-      .slice(0, MAX_FACTS);
+    if (!Array.isArray(data.her)) throw new Error('LLM не повернула фактів');
+    const clean = (value: unknown, max: number) =>
+      (Array.isArray(value) ? value : [])
+        .filter((f): f is string => typeof f === 'string')
+        .map((f) => stripDashes(f.trim()))
+        .filter(Boolean)
+        .slice(0, max);
+    return {
+      her: clean(data.her, MAX_FACTS),
+      // Не повернула список про нього — лишаємо старий, а не стираємо
+      me: Array.isArray(data.me)
+        ? clean(data.me, MAX_MY_FACTS)
+        : (session.myFacts ?? []),
+    };
   }
 
   private async completeJson<T>(
@@ -325,6 +336,16 @@ export class AiService {
         `Контекст про неї та їхнє спілкування:\n${context.join('\n')}`,
       );
     }
+
+    const aboutMe = [
+      session.aboutMe,
+      session.myFacts?.length && formatFacts(session.myFacts),
+    ].filter(Boolean);
+    parts.push(
+      aboutMe.length
+        ? `ФАКТИ ПРО МЕНЕ (спирайся на них, коли вона питає про мене):\n${aboutMe.join('\n')}\nЧого тут нема, не вигадуй: відповідай ухильно, жартом або зустрічним питанням.`
+        : 'Про мене майже нічого не відомо. Якщо вона питає про мене щось конкретне (робота, місто, плани), не вигадуй: відповідай ухильно, жартом або зустрічним питанням.',
+    );
 
     // Стиль — останнім: моделі сильніше зважають на кінець промпта
     if (session.styleEdits.length) {

@@ -46,7 +46,7 @@ export interface Session {
   draft?: string;
   // Повідомлення бота з цією чернеткою — щоб позначити його застарілим
   draftMessageId?: number;
-  awaiting?: 'tone' | 'about' | 'edit' | 'link';
+  awaiting?: 'tone' | 'about' | 'aboutMe' | 'edit' | 'link';
   // Текст відповіді, яку він зараз править
   editTarget?: string;
   // Останні запропоновані питання — щоб обрати одне кнопкою
@@ -72,6 +72,10 @@ export interface Session {
   styleEdits: StyleEdit[];
   // Довга пам'ять: факти про неї, які LLM сама витягує з переписки
   facts?: string[];
+  // Що він сам розповів про себе — модель не вигадує те, чого тут нема
+  aboutMe?: string;
+  // Факти про нього з його реплік; не скидаються з історією — він той самий
+  myFacts?: string[];
   // Скільки повідомлень додалось після останнього оновлення фактів
   factsPending?: number;
 }

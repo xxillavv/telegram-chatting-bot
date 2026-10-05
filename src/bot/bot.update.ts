@@ -13,6 +13,7 @@ import { Context, Telegraf } from 'telegraf';
 import type { Message } from 'telegraf/types';
 import { AiService } from '../ai/ai.service';
 import { SessionService } from '../session/session.service';
+import { Session } from '../session/session.types';
 import { renderContributionChart } from '../stats/stats.chart';
 import { formatInterest, formatStats } from '../stats/stats.text';
 import { DEFAULT_TONE, findTone } from '../tones/tones';
@@ -20,6 +21,7 @@ import { COMMANDS, HELP, MENU } from './bot.constants';
 import {
   cancelKeyboard,
   chatKeyboard,
+  aboutMeKeyboard,
   factsKeyboard,
   mainMenu,
   questionKeyboard,
@@ -47,6 +49,23 @@ const MIN_HER_MESSAGES_FOR_ANALYSIS = 3;
 
 const ABOUT_PROMPT =
   "Розкажи про неї і ваше спілкування: ім'я, вік, як познайомились, спільні теми, що варто знати. Наступне повідомлення я збережу як контекст.";
+const ABOUT_ME_PROMPT =
+  '🙋 Розкажи про себе те, що може спитати вона: де живеш, ким працюєш чи де вчишся, хобі, плани на найближчий час. Я не вигадуватиму того, чого тут нема. Решту підхоплю з твоїх повідомлень.';
+
+function factsText(session: Session): string | undefined {
+  const list = (facts: string[]) => facts.map((f) => `• ${f}`).join('\n');
+  const parts: string[] = [];
+  if (session.facts?.length) {
+    parts.push(`👩 Про неї:\n${list(session.facts)}`);
+  }
+  if (session.myFacts?.length) {
+    parts.push(`🙋 Про тебе:\n${list(session.myFacts)}`);
+  }
+  return parts.length
+    ? `🧠 Що я пам'ятаю з переписки:\n\n${parts.join('\n\n')}`
+    : undefined;
+}
+
 const LINK_PROMPT =
   'Введи @username дівчини, за чиїм чатом стежити. Якщо юзернейму нема, просто перешли мені будь-яке її повідомлення.';
 const CUSTOM_TONE_PROMPT =
@@ -186,17 +205,15 @@ export class BotUpdate implements OnModuleInit {
   @Action('show_facts')
   async showFacts(@Ctx() ctx: Context) {
     await ctx.answerCbQuery();
-    const { facts } = this.sessions.get(ctx.chat!.id);
-    if (!facts?.length) {
+    const session = this.sessions.get(ctx.chat!.id);
+    const text = factsText(session);
+    if (!text) {
       await ctx.reply(
         "Поки нічого не запам'ятав. Факти з'являються з переписки.",
       );
       return;
     }
-    await ctx.reply(
-      `🧠 Що я про неї знаю з переписки:\n\n${facts.map((f) => `• ${f}`).join('\n')}`,
-      factsKeyboard,
-    );
+    await ctx.reply(text, factsKeyboard(session));
   }
 
   @Action('clear_facts')
@@ -204,8 +221,36 @@ export class BotUpdate implements OnModuleInit {
     const session = this.sessions.get(ctx.chat!.id);
     session.facts = [];
     session.factsPending = 0;
-    await ctx.answerCbQuery('Забув');
-    await ctx.editMessageText('🧠 Факти про неї видалено.');
+    await ctx.answerCbQuery('Забув про неї');
+    await this.refreshFactsMessage(ctx, session);
+  }
+
+  @Action('clear_my_facts')
+  async clearMyFacts(@Ctx() ctx: Context) {
+    const session = this.sessions.get(ctx.chat!.id);
+    session.myFacts = [];
+    await ctx.answerCbQuery('Забув про тебе');
+    await this.refreshFactsMessage(ctx, session);
+  }
+
+  @Action('open_about_me')
+  async aboutMeInline(@Ctx() ctx: Context) {
+    await ctx.answerCbQuery();
+    const session = this.sessions.get(ctx.chat!.id);
+    session.awaiting = 'aboutMe';
+    const current = session.aboutMe
+      ? `\n\nЗараз:\n${session.aboutMe}\n\nНове повідомлення замінить це.`
+      : '';
+    await ctx.reply(`${ABOUT_ME_PROMPT}${current}`, aboutMeKeyboard(session));
+  }
+
+  @Action('clear_about_me')
+  async clearAboutMe(@Ctx() ctx: Context) {
+    const session = this.sessions.get(ctx.chat!.id);
+    session.aboutMe = undefined;
+    session.awaiting = undefined;
+    await ctx.answerCbQuery('Видалено');
+    await ctx.editMessageText('🙋 Опис про тебе видалено.');
   }
 
   @Action('cancel_input')
@@ -482,6 +527,7 @@ export class BotUpdate implements OnModuleInit {
 
     if (session.awaiting) {
       if (session.awaiting === 'tone') session.customTone = text;
+      else if (session.awaiting === 'aboutMe') session.aboutMe = text;
       else session.about = text;
       session.awaiting = undefined;
       await ctx.reply('Збережено ✅');
@@ -732,7 +778,15 @@ export class BotUpdate implements OnModuleInit {
     const tone = session.customTone
       ? `✍️ ${session.customTone}`
       : (findTone(session.toneKey) ?? DEFAULT_TONE).label;
-    return `⚙️ Налаштування\n\nТон: ${tone}\nЧат: ${session.linked ? `🔗 ${session.linked.name}` : 'не підключено'}\nАвтовідправка: ${session.autoSend ? 'увімк' : 'вимк'}\nЕмодзі: ${session.emoji ? 'увімк' : 'вимк'}\nКонтекст: ${session.about ?? '—'}\nФактів про неї: ${session.facts?.length ?? 0}\nПравок мого стилю: ${session.styleEdits.length}\nПовідомлень в історії: ${session.history.length}`;
+    return `⚙️ Налаштування\n\nТон: ${tone}\nЧат: ${session.linked ? `🔗 ${session.linked.name}` : 'не підключено'}\nАвтовідправка: ${session.autoSend ? 'увімк' : 'вимк'}\nЕмодзі: ${session.emoji ? 'увімк' : 'вимк'}\nКонтекст: ${session.about ?? '—'}\nПро мене: ${session.aboutMe ?? '—'}\nФактів про неї: ${session.facts?.length ?? 0}\nФактів про мене: ${session.myFacts?.length ?? 0}\nПравок мого стилю: ${session.styleEdits.length}\nПовідомлень в історії: ${session.history.length}`;
+  }
+
+  private async refreshFactsMessage(ctx: Context, session: Session) {
+    const text = factsText(session);
+    await ctx.editMessageText(
+      text ?? '🧠 Усе забув.',
+      text ? factsKeyboard(session) : undefined,
+    );
   }
 
   // Якщо бот чекав на введення тону чи контексту, а користувач пішов у меню — забуваємо про це

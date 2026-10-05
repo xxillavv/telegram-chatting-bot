@@ -280,7 +280,9 @@ export class ConversationService {
     this.factsInProgress.add(chatId);
     try {
       const lines = session.history.slice(-(pending + FACTS_CONTEXT_LINES));
-      session.facts = await this.ai.extractFacts(session, lines);
+      const facts = await this.ai.extractFacts(session, lines);
+      session.facts = facts.her;
+      session.myFacts = facts.me;
       // Поки модель думала, могли прийти нові — їх розберемо наступного разу
       session.factsPending = Math.max(
         0,

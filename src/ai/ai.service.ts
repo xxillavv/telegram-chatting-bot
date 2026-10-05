@@ -29,6 +29,22 @@ function stripDashes(text: string): string {
     .trim();
 }
 
+// Модель іноді загортає відповідь у код: ```, лапки навколо рядків, коми чи дужки масиву
+function stripWrapping(text: string): string {
+  return text
+    .replace(/```[a-z]*/gi, '')
+    .split('\n')
+    .map((line) =>
+      line
+        .trim()
+        .replace(/^[[\]]$/, '')
+        .replace(/['"`»“”]+,?$/, '')
+        .replace(/^['"`«„“]+/, ''),
+    )
+    .filter(Boolean)
+    .join('\n');
+}
+
 function stripEmoji(text: string): string {
   return text.replace(EMOJI_RE, '').replace(/ {2,}/g, ' ').trim();
 }
@@ -166,6 +182,7 @@ export class AiService {
       ?.replace(/<think>[\s\S]*?<\/think>/g, '')
       .trim();
     // Модель іноді ігнорує заборону — підчищаємо самі
+    if (text) text = stripWrapping(text);
     if (text) text = stripDashes(text);
     if (text && !session.emoji) text = stripEmoji(text);
     if (text) text = applyStyleFormat(text);

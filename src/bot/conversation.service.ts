@@ -288,6 +288,17 @@ export class ConversationService {
     }
   }
 
+  // Сесія живе в його чаті з ботом, тож id чату — це він сам; ім'я беремо один раз
+  private async ensureMyName(chatId: number, session: Session) {
+    if (session.myName) return;
+    try {
+      const chat = await this.bot.telegram.getChat(chatId);
+      if ('first_name' in chat) session.myName = chat.first_name;
+    } catch (error) {
+      console.error('Не вдалося дізнатись його ім’я', error);
+    }
+  }
+
   // Відправляти можна лише актуальний варіант
   isCurrentDraft(chatId: number, text: string): boolean {
     return this.sessions.get(chatId).draft === text;
@@ -306,6 +317,7 @@ export class ConversationService {
     void this.refreshFacts(chatId);
     const generation = this.bumpGeneration(chatId);
     await this.bot.telegram.sendChatAction(chatId, 'typing');
+    await this.ensureMyName(chatId, session);
     try {
       const reply = await this.ai.generateReply(session, hint);
       // Поки модель думала, вона дописала — цей варіант уже не про те
@@ -343,6 +355,7 @@ export class ConversationService {
     this.dropDraft(chatId);
     const generation = this.generations.get(chatId);
     await this.bot.telegram.sendChatAction(chatId, 'typing');
+    await this.ensureMyName(chatId, session);
     const text = await this.ai.generateNudge(session, hint);
     // Поки модель думала, вона написала — тепер треба відповідати їй, а не будити розмову
     if (this.generations.get(chatId) !== generation) return;

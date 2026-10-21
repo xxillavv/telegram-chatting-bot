@@ -459,6 +459,7 @@ export class AiService {
     }
 
     const aboutMe = [
+      session.myName && `Мене звати ${session.myName}.`,
       MY_ABOUT,
       session.aboutMe,
       session.myFacts?.length && formatFacts(session.myFacts),

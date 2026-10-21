@@ -1,0 +1,432 @@
+import { Injectable } from '@nestjs/common';
+import { InjectBot } from 'nestjs-telegraf';
+import { Telegraf } from 'telegraf';
+import { AiService } from '../ai/ai.service';
+import { SpeechService } from '../ai/speech.service';
+import { VisionService } from '../ai/vision.service';
+import { SessionService } from '../session/session.service';
+import { LineMeta, Session } from '../session/session.types';
+import {
+  AUTO_BATCH_FACTOR,
+  FORWARD_DELAY_MS,
+  liveDelay,
+  MAX_BATCH_WAIT_MS,
+} from './batching';
+import { AUTO_SEND_QUIET_SECONDS, AUTO_SEND_SECONDS } from './auto-send';
+import { autoSendKeyboard, replyKeyboard } from './bot.keyboards';
+import { canSendTo } from './business.types';
+import { AudioMedia, ImageMedia } from './media';
+
+// Telegram не віддає ботам файли, більші за 20 МБ
+const MAX_AUDIO_BYTES = 20 * 1024 * 1024;
+// Groq приймає картинки до 4 МБ у base64
+const MAX_IMAGE_BYTES = 3 * 1024 * 1024;
+// Скільки описів стікерів і фото пам'ятати — популярні стікери приходять знову і знову
+const MAX_IMAGE_CACHE = 500;
+
+function imageMime(data: Buffer): string {
+  if (data.subarray(8, 12).toString('ascii') === 'WEBP') return 'image/webp';
+  if (data[0] === 0x89 && data[1] === 0x50) return 'image/png';
+  return 'image/jpeg';
+}
+
+// Факти про неї оновлюємо раз на стільки нових повідомлень — не на кожне, щоб не палити ліміти
+const FACTS_EVERY = 10;
+// Трохи старіших рядків для контексту до нових
+const FACTS_CONTEXT_LINES = 4;
+
+// Людина набирає ~5 символів на секунду і робить паузу між повідомленнями —
+// миттєва пачка з трьох повідомлень одразу видає бота
+const TYPING_MS_PER_CHAR = 180;
+const MIN_TYPING_MS = 1200;
+const MAX_TYPING_MS = 7000;
+
+function typingDelay(text: string): number {
+  const jitter = 0.8 + Math.random() * 0.5;
+  return Math.min(
+    MAX_TYPING_MS,
+    Math.max(MIN_TYPING_MS, text.length * TYPING_MS_PER_CHAR * jitter),
+  );
+}
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Спільна логіка розмови — для пересланих повідомлень і для підключеного чату (Telegram Business)
+function splitMessages(text: string): string[] {
+  return text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+@Injectable()
+export class ConversationService {
+  // Її повідомлення, що назбирались, поки чекаємо кінця пачки
+  private readonly batches = new Map<
+    number,
+    { timer: NodeJS.Timeout; startedAt: number; texts: string[]; live: boolean }
+  >();
+  // Номер останньої генерації: якщо поки модель думала, прийшло нове — результат уже застарів
+  private readonly generations = new Map<number, number>();
+
+  constructor(
+    @InjectBot() private readonly bot: Telegraf,
+    private readonly sessions: SessionService,
+    private readonly ai: AiService,
+    private readonly speech: SpeechService,
+    private readonly vision: VisionService,
+  ) {}
+
+  // Описи вже побачених картинок: file_unique_id → опис
+  private readonly imageCache = new Map<string, string>();
+
+  // Таймери автовідправки по чатах
+  private readonly autoTimers = new Map<number, NodeJS.Timeout>();
+  // Коли вона писала востаннє — автовідправка чекає тиші
+  private readonly lastHerAt = new Map<number, number>();
+  // Коли з'явилась поточна чернетка — щоб відрізнити її відповідь від продовження думки
+  private readonly draftAt = new Map<number, number>();
+  // Чати, для яких зараз оновлюються факти
+  private readonly factsInProgress = new Set<number>();
+
+  canSend(session: Session): boolean {
+    return canSendTo(session);
+  }
+
+  cancelAutoSend(chatId: number) {
+    clearTimeout(this.autoTimers.get(chatId));
+    this.autoTimers.delete(chatId);
+  }
+
+  async transcribe(media: AudioMedia): Promise<string> {
+    if (media.size && media.size > MAX_AUDIO_BYTES) {
+      throw new Error('Аудіо більше 20 МБ');
+    }
+    const url = await this.bot.telegram.getFileLink(media.fileId);
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`Telegram file: ${response.status}`);
+    const audio = Buffer.from(await response.arrayBuffer());
+    return this.speech.transcribe(audio, media.fileName);
+  }
+
+  // Фото чи стікер → текст для моделі: «[фото: кіт спить на дивані]»
+  async describeImage(media: ImageMedia): Promise<string> {
+    let description = this.imageCache.get(media.uniqueId);
+    if (!description) {
+      if (media.size && media.size > MAX_IMAGE_BYTES) {
+        throw new Error('Картинка завелика');
+      }
+      const url = await this.bot.telegram.getFileLink(media.fileId);
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`Telegram file: ${response.status}`);
+      const image = Buffer.from(await response.arrayBuffer());
+      description = await this.vision.describe(
+        image,
+        imageMime(image),
+        media.label,
+      );
+      if (this.imageCache.size >= MAX_IMAGE_CACHE) {
+        const [oldest] = this.imageCache.keys();
+        if (oldest !== undefined) this.imageCache.delete(oldest);
+      }
+      this.imageCache.set(media.uniqueId, description);
+    }
+    return `[${media.label}: ${description}]`;
+  }
+
+  // Його власне повідомлення — справжнє, тож заодно вчимося на ньому стилю
+  addMine(chatId: number, text: string, meta: LineMeta = {}) {
+    const session = this.sessions.get(chatId);
+    if (session.draft) {
+      this.sessions.addStyleEdit(chatId, {
+        before: session.draft,
+        after: text,
+      });
+    }
+    session.draft = undefined;
+    this.sessions.addLine(chatId, { from: 'me', text, ...meta });
+  }
+
+  // live: повідомлення з підключеного чату (Telegram Business), де ми бачимо все самі.
+  // При пересиланні не бачимо, що він відправив, тож вважаємо, що нашу чернетку, —
+  // якщо тільки її повідомлення не написане раніше за чернетку (meta.at — дата оригіналу).
+  addHers(chatId: number, text: string, live: boolean, meta: LineMeta = {}) {
+    const session = this.sessions.get(chatId);
+    if (session.draft) {
+      const continuation =
+        live ||
+        (meta.at !== undefined && meta.at <= (this.draftAt.get(chatId) ?? 0));
+      // Вона дописує думку — стара чернетка вже не про те, нова прийде на все разом
+      if (continuation) this.dropDraft(chatId);
+      else this.addMyLines(chatId, session.draft);
+    }
+    this.dropDraft(chatId);
+    this.lastHerAt.set(chatId, Date.now());
+    this.sessions.addLine(chatId, { from: 'her', text, ...meta });
+    this.scheduleReply(chatId, text, live);
+  }
+
+  // Повідомлення в її чаті змінили. Якщо це її повідомлення, на яке ще нема відповіді, — відповідь треба переписати
+  editLine(chatId: number, messageId: number, text: string) {
+    const session = this.sessions.get(chatId);
+    const line = session.history.find((l) => l.messageId === messageId);
+    if (!line || line.text === text) return;
+    const redo = line.from === 'her' && this.isUnanswered(session, line);
+    line.text = text;
+    if (redo) this.redoReply(chatId, `✏️ змінила: ${text}`);
+  }
+
+  // Повідомлення в її чаті видалили — модель не має відповідати на те, чого вже нема
+  removeLines(chatId: number, messageIds: number[]) {
+    const session = this.sessions.get(chatId);
+    const removed = session.history.filter(
+      (l) => l.messageId !== undefined && messageIds.includes(l.messageId),
+    );
+    if (!removed.length) return;
+    const redo = removed.some(
+      (l) => l.from === 'her' && this.isUnanswered(session, l),
+    );
+    session.history = session.history.filter((l) => !removed.includes(l));
+    if (!redo) return;
+
+    if (session.history.at(-1)?.from === 'her') {
+      this.redoReply(chatId, '🗑 видалила повідомлення');
+    } else {
+      // Відповідати вже нема на що
+      this.dropDraft(chatId);
+      this.cancelBatch(chatId);
+    }
+  }
+
+  // Після його останньої репліки — тобто відповідь на нього ще готується
+  private isUnanswered(session: Session, line: Session['history'][number]) {
+    const index = session.history.indexOf(line);
+    return !session.history.slice(index).some((l) => l.from === 'me');
+  }
+
+  private redoReply(chatId: number, notice: string) {
+    this.dropDraft(chatId);
+    this.lastHerAt.set(chatId, Date.now());
+    this.scheduleReply(chatId, notice, true);
+  }
+
+  // Поточна чернетка більше не актуальна: прибираємо її з чату і зупиняємо все, що з нею пов'язане
+  private dropDraft(chatId: number) {
+    const session = this.sessions.get(chatId);
+    void this.deleteDraftMessage(chatId);
+    session.draft = undefined;
+    session.draftMessageId = undefined;
+    this.cancelAutoSend(chatId);
+    this.bumpGeneration(chatId);
+  }
+
+  private cancelBatch(chatId: number) {
+    clearTimeout(this.batches.get(chatId)?.timer);
+    this.batches.delete(chatId);
+  }
+
+  // Вона пише кількома короткими повідомленнями — чекаємо, поки допише думку
+  private scheduleReply(chatId: number, text: string, live: boolean) {
+    const now = Date.now();
+    const batch = this.batches.get(chatId);
+    clearTimeout(batch?.timer);
+    const startedAt = batch?.startedAt ?? now;
+
+    let delay = FORWARD_DELAY_MS;
+    if (live) {
+      const session = this.sessions.get(chatId);
+      const factor =
+        session.autoSend && this.canSend(session) ? AUTO_BATCH_FACTOR : 1;
+      const deadline = startedAt + MAX_BATCH_WAIT_MS * factor;
+      delay = Math.min(liveDelay(text) * factor, Math.max(0, deadline - now));
+    }
+
+    const timer = setTimeout(() => void this.flushBatch(chatId), delay);
+    this.batches.set(chatId, {
+      timer,
+      startedAt,
+      texts: [...(batch?.texts ?? []), text],
+      live: live || Boolean(batch?.live),
+    });
+  }
+
+  private async flushBatch(chatId: number) {
+    const batch = this.batches.get(chatId);
+    this.batches.delete(chatId);
+    if (!batch) return;
+
+    // Одне зведене сповіщення замість окремого на кожен шматок
+    if (batch.live) {
+      const name = this.sessions.get(chatId).linked?.name ?? 'Вона';
+      await this.bot.telegram.sendMessage(
+        chatId,
+        `💬 ${name}:\n${batch.texts.join('\n')}`,
+      );
+    }
+    await this.generate(chatId);
+  }
+
+  private bumpGeneration(chatId: number): number {
+    const next = (this.generations.get(chatId) ?? 0) + 1;
+    this.generations.set(chatId, next);
+    return next;
+  }
+
+  // Щоб у чаті не копились застарілі варіанти — лишається один, актуальний
+  private async deleteDraftMessage(chatId: number) {
+    const { draftMessageId } = this.sessions.get(chatId);
+    if (!draftMessageId) return;
+    try {
+      await this.bot.telegram.deleteMessage(chatId, draftMessageId);
+    } catch {
+      // Повідомлення могли вже видалити — не страшно
+    }
+  }
+
+  // Відправляти можна лише актуальний варіант
+  isCurrentDraft(chatId: number, text: string): boolean {
+    return this.sessions.get(chatId).draft === text;
+  }
+
+  async generate(chatId: number, hint?: string) {
+    const session = this.sessions.get(chatId);
+    if (!session.history.some((line) => line.from === 'her')) {
+      await this.bot.telegram.sendMessage(
+        chatId,
+        'Спершу потрібне її повідомлення 🙂',
+      );
+      return;
+    }
+
+    void this.refreshFacts(chatId);
+    const generation = this.bumpGeneration(chatId);
+    await this.bot.telegram.sendChatAction(chatId, 'typing');
+    try {
+      const reply = await this.ai.generateReply(session, hint);
+      // Поки модель думала, вона дописала — цей варіант уже не про те
+      if (this.generations.get(chatId) !== generation) return;
+      session.draft = reply;
+      this.draftAt.set(chatId, Date.now());
+      const auto = Boolean(session.autoSend) && this.canSend(session);
+      const autoDelay = this.autoSendDelay(chatId);
+      const sent = await this.bot.telegram.sendMessage(
+        chatId,
+        reply,
+        auto
+          ? autoSendKeyboard(Math.round(autoDelay / 1000))
+          : replyKeyboard(this.canSend(session)),
+      );
+      session.draftMessageId = sent.message_id;
+      if (auto)
+        this.scheduleAutoSend(chatId, reply, sent.message_id, autoDelay);
+    } catch (error) {
+      console.error(error);
+      await this.bot.telegram.sendMessage(
+        chatId,
+        'Не вдалося згенерувати відповідь, спробуй ще раз 🙏',
+      );
+    }
+  }
+
+  // У фоні: відповідь не чекає, нові факти підхопить уже наступна
+  private async refreshFacts(chatId: number) {
+    const session = this.sessions.get(chatId);
+    const pending = this.sessions.factsPending(session);
+    if (pending < FACTS_EVERY || this.factsInProgress.has(chatId)) return;
+
+    this.factsInProgress.add(chatId);
+    try {
+      const lines = session.history.slice(-(pending + FACTS_CONTEXT_LINES));
+      const facts = await this.ai.extractFacts(session, lines);
+      session.facts = facts.her;
+      session.myFacts = facts.me;
+      // Поки модель думала, могли прийти нові — їх розберемо наступного разу
+      session.factsPending = Math.max(
+        0,
+        this.sessions.factsPending(session) - pending,
+      );
+    } catch (error) {
+      console.error('Не вдалося оновити факти', error);
+    } finally {
+      this.factsInProgress.delete(chatId);
+    }
+  }
+
+  // Не менше вікна на «Стоп» і не раніше, ніж вона помовчить
+  private autoSendDelay(chatId: number): number {
+    const quietUntil =
+      (this.lastHerAt.get(chatId) ?? 0) + AUTO_SEND_QUIET_SECONDS * 1000;
+    return Math.max(AUTO_SEND_SECONDS * 1000, quietUntil - Date.now());
+  }
+
+  // Якщо за цей час він не натиснув «Стоп», не правив і вона не дописала — відправляємо самі
+  private scheduleAutoSend(
+    chatId: number,
+    text: string,
+    messageId: number,
+    delay: number,
+  ) {
+    this.cancelAutoSend(chatId);
+    const timer = setTimeout(() => {
+      this.autoTimers.delete(chatId);
+      void (async () => {
+        const session = this.sessions.get(chatId);
+        if (!session.autoSend || session.draft !== text) return;
+        try {
+          await this.sendToHer(chatId, text);
+          await this.bot.telegram.editMessageText(
+            chatId,
+            messageId,
+            undefined,
+            `🤖 Відправлено автоматично\n\n${text}`,
+          );
+        } catch (error) {
+          console.error(error);
+          await this.bot.telegram.sendMessage(
+            chatId,
+            'Автовідправка не вдалась 🙏 Відправ вручну або перевір дозволи чат-бота.',
+          );
+        }
+      })();
+    }, delay);
+    this.autoTimers.set(chatId, timer);
+  }
+
+  // Відправка їй від його імені через Telegram Business — з «друкує…», як людина
+  async sendToHer(chatId: number, text: string) {
+    const session = this.sessions.get(chatId);
+    if (!this.canSend(session)) throw new Error('Чат не підключено');
+    this.cancelAutoSend(chatId);
+    const { connectionId } = session.business!;
+    const herChatId = session.linked!.chatId;
+    // Telegraf 4.16 не знає business_connection_id, але передає extra в API як є
+    const extra = { business_connection_id: connectionId } as object;
+
+    // Кожен рядок — окреме повідомлення, як він і пише
+    const sent: { text: string; messageId: number }[] = [];
+    for (const line of splitMessages(text)) {
+      // У неї світиться «друкує…», поки «набираємо» рядок
+      await this.bot.telegram
+        .sendChatAction(herChatId, 'typing', extra)
+        .catch(() => undefined);
+      await sleep(typingDelay(line));
+      const message = await this.bot.telegram.sendMessage(
+        herChatId,
+        line,
+        extra,
+      );
+      sent.push({ text: line, messageId: message.message_id });
+    }
+
+    session.draft = undefined;
+    session.draftMessageId = undefined;
+    for (const line of sent)
+      this.sessions.addLine(chatId, { from: 'me', ...line });
+  }
+
+  private addMyLines(chatId: number, text: string) {
+    for (const line of splitMessages(text)) {
+      this.sessions.addLine(chatId, { from: 'me', text: line });
+    }
+  }
+}

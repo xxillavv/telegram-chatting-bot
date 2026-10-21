@@ -1,17 +1,27 @@
 import { Module } from '@nestjs/common';
-import { AppService } from './app.service';
 import { TelegrafModule } from 'nestjs-telegraf';
-import 'dotenv/config'
-import { ChattingBotUpdate } from './app.update';
-
+import 'dotenv/config';
+import { BotModule } from './bot/bot.module';
+import { DatabaseModule } from './database/database.module';
+import { HealthController } from './health.controller';
+import { BUSINESS_UPDATES } from './bot/business.types';
 
 @Module({
   imports: [
+    DatabaseModule,
     TelegrafModule.forRoot({
-      token: process.env.TELEGRAM_BOT_TOKEN!
-    })
+      token: process.env.TG_API_TOKEN!,
+      launchOptions: {
+        // Бізнес-оновлення треба замовити явно, інакше Telegram їх може не надсилати
+        allowedUpdates: [
+          'message',
+          'callback_query',
+          ...BUSINESS_UPDATES,
+        ] as never,
+      },
+    }),
+    BotModule,
   ],
-  providers: [AppService, ChattingBotUpdate
-  ],
+  controllers: [HealthController],
 })
-export class AppModule { }
+export class AppModule {}

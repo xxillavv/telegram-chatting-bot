@@ -14,10 +14,10 @@ import { InterestAnalysis } from './interest.types';
 import { INTEREST_PROMPT } from './prompts/interest.prompt';
 import { FACTS_PROMPT, MAX_FACTS, MAX_MY_FACTS } from './prompts/facts.prompt';
 import {
-  DIALOG_EXAMPLES,
   MAX_REPLY_MESSAGES,
   MY_ABOUT,
   MY_STYLE,
+  pickExamples,
   STYLE_FORMAT,
 } from './prompts/my-style.prompt';
 import { formatStats } from '../stats/stats.text';
@@ -108,26 +108,27 @@ function replyBudget(fresh: Session['history']): {
   hint: string;
 } {
   const total = fresh.reduce((sum, line) => sum + words(line.text), 0);
+  // Межі — з його справжньої переписки: на 1–3 її слова він відповідає ~2 повідомленнями й ~6 словами
   if (total <= 3) {
     return {
-      messages: 1,
-      hint: 'Вона написала дуже коротко. Відповідай одним коротким повідомленням до 6 слів.',
+      messages: 2,
+      hint: 'Вона написала дуже коротко. Відповідай 1–2 короткими повідомленнями, разом до 8 слів.',
     };
   }
   if (total <= 15) {
     return {
-      messages: 2,
-      hint: 'Вона написала коротко. Відповідай 1–2 короткими повідомленнями, разом до 15 слів.',
+      messages: 3,
+      hint: 'Вона написала коротко. Відповідай 1–3 короткими повідомленнями, разом до 12 слів.',
     };
   }
   return {
     messages: MAX_REPLY_MESSAGES,
-    hint: 'Вона написала розгорнуто. Можна 2–3 повідомлення, але кожне коротке.',
+    hint: `Вона написала розгорнуто. Можна 2–${MAX_REPLY_MESSAGES} повідомлення, але кожне коротке.`,
   };
 }
 
-function exampleTurns(): OpenAI.ChatCompletionMessageParam[] {
-  return DIALOG_EXAMPLES.flatMap(({ her, me }) => [
+function exampleTurns(herLines: string[]): OpenAI.ChatCompletionMessageParam[] {
+  return pickExamples(herLines).flatMap(({ her, me }) => [
     {
       role: 'user' as const,
       content: `Приклад. Її повідомлення:\n${her.map((t) => `Вона: ${t}`).join('\n')}`,
@@ -355,7 +356,9 @@ export class AiService {
       model: this.model,
       messages: [
         { role: 'system', content: this.buildSystemPrompt(session) },
-        ...(withExamples ? exampleTurns() : []),
+        ...(withExamples
+          ? exampleTurns(this.freshLines(session).map((line) => line.text))
+          : []),
         { role: 'user', content: userPrompt },
       ],
       temperature: 0.8,

@@ -1,10 +1,17 @@
 import { Module } from '@nestjs/common';
-import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { TelegrafModule } from 'nestjs-telegraf';
+import 'dotenv/config'
+import { ChattingBotUpdate } from './app.update';
+
 
 @Module({
-  imports: [],
-  controllers: [AppController],
-  providers: [AppService],
+  imports: [
+    TelegrafModule.forRoot({
+      token: process.env.TELEGRAM_BOT_TOKEN!
+    })
+  ],
+  providers: [AppService, ChattingBotUpdate
+  ],
 })
-export class AppModule {}
+export class AppModule { }

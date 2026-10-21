@@ -42,6 +42,9 @@ lerna-debug.log*
 .env.production.local
 .env.local
 
+# Особисті налаштування стилю й архіви переписок — репозиторій публічний
+/private
+
 # temp directory
 .temp
 .tmp

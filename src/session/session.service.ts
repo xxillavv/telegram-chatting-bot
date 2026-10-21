@@ -111,6 +111,10 @@ export class SessionService implements OnModuleInit, BeforeApplicationShutdown {
     return session;
   }
 
+  entries(): IterableIterator<[number, Session]> {
+    return this.sessions.entries();
+  }
+
   findByConnection(connectionId: string): Session | undefined {
     for (const session of this.sessions.values()) {
       if (session.business?.connectionId === connectionId) return session;

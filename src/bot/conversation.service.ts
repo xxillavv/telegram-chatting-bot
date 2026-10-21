@@ -13,7 +13,12 @@ import {
   MAX_BATCH_WAIT_MS,
 } from './batching';
 import { AUTO_SEND_QUIET_SECONDS, AUTO_SEND_SECONDS } from './auto-send';
-import { autoSendKeyboard, replyKeyboard } from './bot.keyboards';
+import { formatGap } from '../ai/time';
+import {
+  autoSendKeyboard,
+  nudgeKeyboard,
+  replyKeyboard,
+} from './bot.keyboards';
 import { canSendTo } from './business.types';
 import { AudioMedia, ImageMedia } from './media';
 
@@ -326,6 +331,40 @@ export class ConversationService {
         'Не вдалося згенерувати відповідь, спробуй ще раз 🙏',
       );
     }
+  }
+
+  // Переписка надовго затихла — пропонуємо йому написати першим. Ніколи не відправляється само:
+  // після довгої паузи він має сам вирішити, чи писати
+  async nudge(chatId: number, hint?: string, withHeader = true) {
+    const session = this.sessions.get(chatId);
+    const last = session.history.at(-1);
+    if (!last) return;
+
+    this.dropDraft(chatId);
+    const generation = this.generations.get(chatId);
+    await this.bot.telegram.sendChatAction(chatId, 'typing');
+    const text = await this.ai.generateNudge(session, hint);
+    // Поки модель думала, вона написала — тепер треба відповідати їй, а не будити розмову
+    if (this.generations.get(chatId) !== generation) return;
+
+    if (withHeader) {
+      const name = session.linked?.name ?? 'Вона';
+      const gap = last.at ? formatGap(Date.now() - last.at) : 'давно';
+      await this.bot.telegram.sendMessage(
+        chatId,
+        last.from === 'me'
+          ? `💤 ${name} не відповідає вже ${gap}. Можна розбудити розмову так 👇`
+          : `💤 Ви не переписувались уже ${gap}. Можна написати першим 👇`,
+      );
+    }
+    session.draft = text;
+    this.draftAt.set(chatId, Date.now());
+    const sent = await this.bot.telegram.sendMessage(
+      chatId,
+      text,
+      nudgeKeyboard(this.canSend(session)),
+    );
+    session.draftMessageId = sent.message_id;
   }
 
   // У фоні: відповідь не чекає, нові факти підхопить уже наступна

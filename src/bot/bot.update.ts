@@ -363,6 +363,33 @@ export class BotUpdate implements OnModuleInit {
     );
   }
 
+  @Action('nudge_regen')
+  async nudgeRegen(@Ctx() ctx: Context) {
+    await ctx.answerCbQuery();
+    try {
+      await this.conversation.nudge(
+        ctx.chat!.id,
+        'Дай інший варіант, не схожий на попередній.',
+        false,
+      );
+    } catch (error) {
+      console.error(error);
+      await ctx.reply('Не вдалося згенерувати, спробуй ще раз 🙏');
+    }
+  }
+
+  @Action('toggle_nudge')
+  async toggleNudge(@Ctx() ctx: Context) {
+    const session = this.sessions.get(ctx.chat!.id);
+    session.nudge = session.nudge === false;
+    await ctx.answerCbQuery(
+      session.nudge
+        ? 'Коли переписка затихне, підкажу, що їй написати'
+        : 'Підказки вимкнено',
+    );
+    await ctx.editMessageReplyMarkup(settingsKeyboard(session).reply_markup);
+  }
+
   @Action('send_reply')
   async sendReply(@Ctx() ctx: Context) {
     const message = ctx.callbackQuery?.message;

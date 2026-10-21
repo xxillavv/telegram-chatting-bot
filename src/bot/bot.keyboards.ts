@@ -31,6 +31,17 @@ export function replyKeyboard(canSend: boolean): InlineKeyboard {
   ]);
 }
 
+// Пропозиція написати першим після довгої паузи — «інший варіант» тут свій, бо відповідати нема на що
+export function nudgeKeyboard(canSend: boolean): InlineKeyboard {
+  return Markup.inlineKeyboard([
+    ...(canSend ? [[sendButton]] : []),
+    [
+      Markup.button.callback('✏️ Підправити', 'edit_reply'),
+      Markup.button.callback('🔄 Інший варіант', 'nudge_regen'),
+    ],
+  ]);
+}
+
 export function questionsKeyboard(count: number): InlineKeyboard {
   return Markup.inlineKeyboard([
     Array.from({ length: count }, (_, i) =>
@@ -115,7 +126,19 @@ export function settingsKeyboard(session: Session): InlineKeyboard {
       Markup.button.callback('🗑 Видалити контекст', 'clear_about'),
     ],
     [Markup.button.callback('🙋 Про мене', 'open_about_me')],
-    ...(canSendTo(session) ? [[autoSendButton(session)]] : []),
+    ...(canSendTo(session)
+      ? [
+          [autoSendButton(session)],
+          [
+            Markup.button.callback(
+              session.nudge === false
+                ? '🔕 Підказки, коли мовчить: вимк'
+                : '🔔 Підказки, коли мовчить: увімк',
+              'toggle_nudge',
+            ),
+          ],
+        ]
+      : []),
     ...(session.facts?.length || session.myFacts?.length
       ? [[Markup.button.callback("🧠 Що я пам'ятаю", 'show_facts')]]
       : []),

@@ -16,6 +16,7 @@ import { FACTS_PROMPT, MAX_FACTS, MAX_MY_FACTS } from './prompts/facts.prompt';
 import {
   DIALOG_EXAMPLES,
   MAX_REPLY_MESSAGES,
+  MY_ABOUT,
   MY_STYLE,
   STYLE_FORMAT,
 } from './prompts/my-style.prompt';
@@ -137,6 +138,10 @@ function exampleTurns(): OpenAI.ChatCompletionMessageParam[] {
 
 const QUESTIONS_COUNT = 3;
 
+// Після довгої паузи досить кількох останніх реплік, решту пам'ятають факти
+const NUDGE_HISTORY = 20;
+const NUDGE_MAX_MESSAGES = 2;
+
 const MAX_QUOTE = 100;
 
 function quote(text: string): string {
@@ -177,8 +182,28 @@ export class AiService {
     let userPrompt = this.buildDialogPrompt(session);
     if (hint) userPrompt += `\n${hint}`;
     const text = await this.complete(session, userPrompt, true);
+    const { messages } = replyBudget(this.freshLines(session));
+    return this.dropRepeats(session, text, messages);
+  }
 
-    // Однакова фраза двічі за розмову — найпомітніша ознака бота
+  // Переписка надовго затихла — повідомлення, з яким він першим відновить розмову
+  async generateNudge(session: Session, hint?: string): Promise<string> {
+    const ignored = session.history.at(-1)?.from === 'me';
+    const parts = [
+      `Наша переписка (останні повідомлення внизу):\n${formatLines(session.history.slice(-NUDGE_HISTORY))}`,
+      nowContext(session.history),
+      ignored
+        ? 'Моє останнє повідомлення лишилось без відповіді. Напиши повідомлення, щоб невимушено відновити розмову. Не дорікай, не питай, чому вона мовчить, не повторюй і не перепитуй моє останнє повідомлення: краще нова легка тема або щось із того, що я про неї знаю.'
+        : 'Розмова давно затихла. Напиши повідомлення, щоб невимушено її відновити: зачепись за щось із того, що я про неї знаю, за тему з переписки або почни нову легку тему. Не продовжуй стару тему так, ніби її щойно обговорювали.',
+      `Пиши так, ніби мені просто спало на думку їй написати: без «давно не спілкувались» і без пояснень паузи. Не більше ${NUDGE_MAX_MESSAGES} коротких повідомлень, суворо в обраному тоні.`,
+    ];
+    if (hint) parts.push(hint);
+    const text = await this.complete(session, parts.join('\n\n'), true);
+    return this.dropRepeats(session, text, NUDGE_MAX_MESSAGES);
+  }
+
+  // Однакова фраза двічі за розмову — найпомітніша ознака бота
+  private dropRepeats(session: Session, text: string, max: number): string {
     const said = new Set(
       session.history
         .filter((line) => line.from === 'me')
@@ -189,8 +214,7 @@ export class AiService {
     const fresh = lines.filter(
       (line) => !said.has(normalize(line)) && !BOT_PHRASES.test(line),
     );
-    const { messages } = replyBudget(this.freshLines(session));
-    return (fresh.length ? fresh : lines).slice(0, messages).join('\n');
+    return (fresh.length ? fresh : lines).slice(0, max).join('\n');
   }
 
   // Питання, щоб розрядити паузу — з урахуванням контексту, переписки, тону і стилю
@@ -432,6 +456,7 @@ export class AiService {
     }
 
     const aboutMe = [
+      MY_ABOUT,
       session.aboutMe,
       session.myFacts?.length && formatFacts(session.myFacts),
     ].filter(Boolean);

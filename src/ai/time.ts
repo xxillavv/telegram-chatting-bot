@@ -18,6 +18,17 @@ const dayFormat = new Intl.DateTimeFormat('uk-UA', {
   dateStyle: 'short',
 });
 
+const hourFormat = new Intl.DateTimeFormat('en-GB', {
+  timeZone: TIME_ZONE,
+  hour: 'numeric',
+  hourCycle: 'h23',
+});
+
+// Котра зараз година в нього (0–23)
+export function localHour(at = Date.now()): number {
+  return Number(hourFormat.format(at));
+}
+
 export function formatWhen(at: number): string {
   return whenFormat.format(at);
 }
